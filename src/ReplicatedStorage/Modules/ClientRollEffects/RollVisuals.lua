@@ -45,13 +45,13 @@ local camera = workspace.CurrentCamera
 ------------------------------------------------------------------------
 -- Tuning
 ------------------------------------------------------------------------
-local ROLL_DURATION    = 3       -- seconds for the full roll
-local TICK_FAST        = 0.016   -- ~60 hz — "super fast" at the start
-local TICK_SLOW        = 0.2     -- ~5 hz  — "super slow" near landing (stays smooth)
-local FADE_DURATION    = 0.35    -- screen crossfade
+local ROLL_DURATION    = 5       -- seconds for the full roll
+local TICK_FAST        = 0.09   -- ~60 hz — "super fast" at the start
+local TICK_SLOW        = 0.34    -- ~5 hz  — "super slow" near landing (stays smooth)
+local FADE_DURATION    = 0.15    -- screen crossfade
 local FOV_DEFAULT      = 70
 local FOV_ROLL         = 60
-local POST_LAND_PAUSE  = 2.0     -- seconds the result is held on screen
+local POST_LAND_PAUSE  = 1.0     -- seconds the result is held on screen
 local SUNBURST_SPEED   = 25      -- degrees per second
 
 -- Sounds — replace placeholder IDs with your real asset IDs
