@@ -1,40 +1,53 @@
 -- ModuleScript: ReplicatedStorage.Modules.ClientRollEffects.EffectData
 --
--- Maps every rollable effect name to its display name and 2D preview image.
--- The Image is shown (as a black silhouette) on the ImageSurface SurfaceGui
--- while the roll is cycling.  Replace every "rbxassetid://0" with the real ID.
+-- Single source of truth for every rollable effect.
+-- All fields are read by RollVisuals — no need to pass Odds or Rarity separately.
 --
--- The key MUST match the key used in the optionsTable passed to RollVisuals.Play.
+-- Image   : rbxassetid of the 2D preview shown (as a black silhouette) during rolls.
+-- Odds    : 0–1 probability weight.  0.1 = "1/10".  Used for weighted pool building.
+-- Rarity  : must match a key in RarityData.
 
 return {
 	["Inferno"] = {
 		DisplayName = "Inferno",
-		Image       = "http://www.roblox.com/asset/?id=8508980527",   -- TODO: replace with real asset ID
+		Image       = "http://www.roblox.com/asset/?id=8508980527",
+		Odds        = 0.25,
+		Rarity      = "Common",
 	},
 
 	["Blizzard"] = {
 		DisplayName = "Blizzard",
 		Image       = "http://www.roblox.com/asset/?id=130218740",
+		Odds        = 0.15,
+		Rarity      = "Uncommon",
 	},
 
 	["Thunder"] = {
 		DisplayName = "Thunder",
 		Image       = "http://www.roblox.com/asset/?id=6673967738",
+		Odds        = 0.08,
+		Rarity      = "Rare",
 	},
 
 	["Void"] = {
 		DisplayName = "Void",
 		Image       = "http://www.roblox.com/asset/?id=6344756217",
+		Odds        = 0.03,
+		Rarity      = "Epic",
 	},
 
 	["Celestial"] = {
 		DisplayName = "Celestial",
 		Image       = "http://www.roblox.com/asset/?id=1177150746",
+		Odds        = 0.01,
+		Rarity      = "Legendary",
 	},
 
-	-- Add further effects following the same pattern.
+	-- Add further effects following the same pattern:
 	-- ["YourEffect"] = {
 	--     DisplayName = "Your Effect",
 	--     Image       = "rbxassetid://xxxxxxxxxxxxx",
+	--     Odds        = 0.005,
+	--     Rarity      = "Mythical",
 	-- },
 }

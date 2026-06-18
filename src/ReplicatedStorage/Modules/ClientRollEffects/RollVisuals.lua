@@ -3,13 +3,10 @@
 -- Client-side rolling visuals sequence (Sol's RNG style — single display surface).
 --
 -- API:
---   RollVisuals.Play(chosenEffect: string, optionsTable: table, onComplete: function?)
+--   RollVisuals.Play(chosenEffect: string, effectsList: {string}, onComplete: function?)
 --
--- optionsTable format:
---   {
---       ["EffectName"] = { Odds = 0.1, Rarity = "Common" },
---       ...
---   }
+-- effectsList is a plain array of effect name keys that should appear in the roll pool,
+-- e.g. { "Inferno", "Blizzard", "Thunder" }.  Odds and Rarity are read from EffectData.
 --
 -- Workspace.Cutscene must contain:
 --   Anchor        BasePart  — camera origin
@@ -68,11 +65,13 @@ local TI_CAM_IN  = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDir
 -- Weighted random pool
 -- Each effect is added (odds × 1000) times so fractional weights resolve
 -- to whole-number slot counts without bias.
+-- effectsList is a plain array of effect name strings.
 ------------------------------------------------------------------------
-local function buildPool(options)
+local function buildPool(effectsList)
 	local pool = {}
-	for name, data in pairs(options) do
-		local slots = math.max(1, math.round((data.Odds or 0) * 1000))
+	for _, name in ipairs(effectsList) do
+		local data  = EffectData[name]
+		local slots = data and math.max(1, math.round((data.Odds or 0) * 1000)) or 1
 		for _ = 1, slots do
 			pool[#pool + 1] = name
 		end
@@ -151,13 +150,13 @@ end
 
 ------------------------------------------------------------------------
 -- Refresh the display surface for a given effect name.
+-- All metadata is sourced from EffectData and RarityData.
 -- The image is ALWAYS silhouette-black (ImageColor3 = 0,0,0) —
 -- the particle sequence handles the final reveal.
 ------------------------------------------------------------------------
-local function refreshDisplay(effectName, options, imgLabel, nameL, oddsL, rarityL)
-	local opts   = options[effectName]
+local function refreshDisplay(effectName, imgLabel, nameL, oddsL, rarityL)
 	local effect = EffectData[effectName]
-	local rarity = opts and RarityData[opts.Rarity]
+	local rarity = effect and RarityData[effect.Rarity]
 
 	if effect and effect.Image then
 		imgLabel.Image = effect.Image
@@ -165,8 +164,8 @@ local function refreshDisplay(effectName, options, imgLabel, nameL, oddsL, rarit
 	imgLabel.ImageColor3 = Color3.new(0, 0, 0)
 
 	nameL.Text   = (effect and effect.DisplayName) or effectName
-	oddsL.Text   = opts and toFraction(opts.Odds) or ""
-	rarityL.Text = (opts and opts.Rarity) or ""
+	oddsL.Text   = effect and toFraction(effect.Odds) or ""
+	rarityL.Text = (effect and effect.Rarity) or ""
 
 	local col          = rarity and rarity.Color or Color3.new(1, 1, 1)
 	oddsL.TextColor3   = col
@@ -180,13 +179,13 @@ end
 local RollVisuals = {}
 local isRolling   = false
 
-function RollVisuals.Play(chosenEffect, optionsTable, onComplete)
+function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 	if isRolling then
 		warn("[RollVisuals] A roll is already in progress; call ignored.")
 		return
 	end
-	if not optionsTable[chosenEffect] then
-		warn("[RollVisuals] chosenEffect not found in optionsTable:", chosenEffect)
+	if not EffectData[chosenEffect] then
+		warn("[RollVisuals] chosenEffect not found in EffectData:", chosenEffect)
 		if onComplete then onComplete() end
 		return
 	end
@@ -194,7 +193,7 @@ function RollVisuals.Play(chosenEffect, optionsTable, onComplete)
 	isRolling = true
 
 	task.spawn(function()
-		local pool = buildPool(optionsTable)
+		local pool = buildPool(effectsList)
 
 		--------------------------------------------------------------------
 		-- 1. Fade to black
@@ -277,7 +276,7 @@ function RollVisuals.Play(chosenEffect, optionsTable, onComplete)
 		--    At progress=0  →  TICK_FAST  (~60 hz, "super fast")
 		--    At progress=1  →  TICK_SLOW  (~2 hz,  "super slow")
 		--------------------------------------------------------------------
-		refreshDisplay(pickRandom(pool), optionsTable, imgLabel, nameL, oddsL, rarityL)
+		refreshDisplay(pickRandom(pool), imgLabel, nameL, oddsL, rarityL)
 
 		local signal    = Instance.new("BindableEvent")
 		local startTime = os.clock()
@@ -295,14 +294,14 @@ function RollVisuals.Play(chosenEffect, optionsTable, onComplete)
 			if progress >= 1 then
 				landed = true
 				rollConn:Disconnect()
-				refreshDisplay(chosenEffect, optionsTable, imgLabel, nameL, oddsL, rarityL)
+				refreshDisplay(chosenEffect, imgLabel, nameL, oddsL, rarityL)
 				signal:Fire()
 				return
 			end
 
 			if now - lastTick >= interval then
 				lastTick = now
-				refreshDisplay(pickRandom(pool), optionsTable, imgLabel, nameL, oddsL, rarityL)
+				refreshDisplay(pickRandom(pool), imgLabel, nameL, oddsL, rarityL)
 			end
 		end)
 
