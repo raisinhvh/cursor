@@ -24,6 +24,7 @@
 local TweenService      = game:GetService("TweenService")
 local RunService        = game:GetService("RunService")
 local Players           = game:GetService("Players")
+local UserInputService  = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ClientRollEffects = script.Parent
@@ -55,8 +56,11 @@ local FOV_LAND           = 85     -- FOV punch target on land
 local POST_LAND_PAUSE    = 4      -- seconds the result is held on screen
 local SUNBURST_SPEED     = 25     -- degrees per second
 local BOUNCE_SCALE       = 1.05   -- how much the surface punches on each tick
-local CAMERA_START_PITCH = -9
-local CAMERA_LAND_PITCH  = 9
+local CAMERA_START_PITCH   = -9
+local CAMERA_LAND_PITCH    = 9
+local CAMERA_LAND_PULLBACK = 2    -- studs pulled back on landing tilt
+local CURSOR_FOLLOW_MAX    = 0.75 -- max camera offset in studs
+local CURSOR_FOLLOW_SMOOTH = 10   -- lerp speed toward cursor target
 
 -- Sounds — replace placeholder IDs with your real asset IDs
 local SOUND_OPEN_START = "rbxassetid://0"                -- plays once when the roll sequence begins
@@ -288,8 +292,54 @@ local function cframeAtPositionWithPitch(position, pitchDegrees)
 	return CFrame.new(position) * CFrame.Angles(math.rad(pitchDegrees), 0, 0)
 end
 
-local function cameraCFrameWithPitch(cameraCF, pitchDegrees)
-	return cameraCF * CFrame.Angles(math.rad(pitchDegrees), 0, 0)
+local function cameraCFrameWithPitchAndPullback(cameraCF, pitchDegrees, pullbackStuds)
+	local pitched = cameraCF * CFrame.Angles(math.rad(pitchDegrees), 0, 0)
+	return pitched * CFrame.new(0, 0, pullbackStuds)
+end
+
+local function getMouseNormalized()
+	local mouse    = UserInputService:GetMouseLocation()
+	local viewport = camera.ViewportSize
+	if viewport.X <= 0 or viewport.Y <= 0 then
+		return Vector2.zero
+	end
+
+	return Vector2.new(
+		math.clamp((mouse.X / viewport.X - 0.5) * 2, -1, 1),
+		math.clamp((mouse.Y / viewport.Y - 0.5) * 2, -1, 1)
+	)
+end
+
+local function applyCursorFollow(baseCF, currentOffset, dt)
+	local mouseNorm    = getMouseNormalized()
+	local targetOffset = Vector3.new(
+		mouseNorm.X * CURSOR_FOLLOW_MAX,
+		-mouseNorm.Y * CURSOR_FOLLOW_MAX,
+		0
+	)
+	local blend        = math.min(1, CURSOR_FOLLOW_SMOOTH * dt)
+	local nextOffset   = currentOffset:Lerp(targetOffset, blend)
+
+	return baseCF * CFrame.new(nextOffset), nextOffset
+end
+
+local function makeCursorFollower(getBaseCF)
+	local offset = Vector3.zero
+
+	return RunService.RenderStepped:Connect(function(dt)
+		local baseCF
+		local ok, result = pcall(getBaseCF)
+		if ok then
+			baseCF = result
+		end
+		if not baseCF then
+			return
+		end
+
+		local cf
+		cf, offset = applyCursorFollow(baseCF, offset, dt)
+		camera.CFrame = cf
+	end)
 end
 
 ------------------------------------------------------------------------
@@ -361,16 +411,26 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		camera.FieldOfView = FOV_DEFAULT
 
 		local targetCF = CFrame.lookAt(anchor.Position, imageSurface.Position)
+		local landCF   = cameraCFrameWithPitchAndPullback(targetCF, CAMERA_LAND_PITCH, CAMERA_LAND_PULLBACK)
 		local downCF   = CFrame.lookAt(
 			anchor.Position,
 			anchor.Position + Vector3.new(0.001, -1, 0.001)
 		)
-		camera.CFrame = downCF
+
+		local camBase       = Instance.new("CFrameValue")
+		camBase.Name        = "RollCameraBase"
+		camBase.Value       = downCF
+		camBase.Parent      = scene
+
+		local cursorConn    = makeCursorFollower(function()
+			return camBase.Value
+		end)
+		camera.CFrame       = downCF
 
 		--------------------------------------------------------------------
 		-- 4. Camera intro (elastic down → up), then undarken
 		--------------------------------------------------------------------
-		TweenService:Create(camera, TI_CAM_IN, { CFrame = targetCF }):Play()
+		TweenService:Create(camBase, TI_CAM_IN, { Value = targetCF }):Play()
 		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
 
 		--------------------------------------------------------------------
@@ -447,7 +507,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		--    FOV: 55 → 85 fast (punch), then 85 → 70 elastic (settle)
 		--    Sunburst pops in and spins; surface + billboard fade out
 		--------------------------------------------------------------------
-		TweenService:Create(camera, TI_CAMERA_LAND, { CFrame = cameraCFrameWithPitch(targetCF, CAMERA_LAND_PITCH) }):Play()
+		TweenService:Create(camBase, TI_CAMERA_LAND, { Value = landCF }):Play()
 
 		task.spawn(function()
 			awaitTween(TweenService:Create(camera, TI_FOV_PUNCH,  { FieldOfView = FOV_LAND    }))
@@ -485,6 +545,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		-- 10. Tear down
 		--------------------------------------------------------------------
 		sunConn:Disconnect()
+		cursorConn:Disconnect()
 		startSound:Destroy()
 		tickSound:Destroy()
 		preLandSound:Destroy()
