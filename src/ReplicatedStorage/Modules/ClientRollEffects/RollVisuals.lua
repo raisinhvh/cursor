@@ -56,7 +56,7 @@ local POST_LAND_PAUSE    = 4      -- seconds the result is held on screen
 local SUNBURST_SPEED     = 25     -- degrees per second
 local BOUNCE_SCALE       = 1.05   -- how much the surface punches on each tick
 local CAMERA_START_PITCH = -9
-local CAMERA_LAND_PITCH  = 4
+local CAMERA_LAND_PITCH  = 9
 
 -- Sounds — replace placeholder IDs with your real asset IDs
 local SOUND_OPEN_START = "rbxassetid://0"                -- plays once when the roll sequence begins
@@ -336,7 +336,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		local _, nameL, oddsL, rarityL = buildBillboardGui(imageSurface)
 
 		anchor.CFrame               = cframeAtPositionWithPitch(anchor.Position, CAMERA_START_PITCH)
-		sunburst.Size               = Vector3.zero
+		sunburst.Size               = Vector3.new(0,0,0)
 		sunLabel.ImageTransparency  = 1
 
 		--------------------------------------------------------------------
