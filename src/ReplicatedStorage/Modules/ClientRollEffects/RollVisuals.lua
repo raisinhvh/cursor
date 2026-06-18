@@ -1,38 +1,14 @@
--- ModuleScript: ReplicatedStorage.Modules.ClientRollEffects.RollVisuals
---
--- Client-side rolling visuals sequence (Sol's RNG style — single display surface).
---
--- API:
---   RollVisuals.Play(chosenEffect: string, effectsList: {string}, onComplete: function?)
---
--- effectsList is a plain array of effect name keys that should appear in the roll pool,
--- e.g. { "Inferno", "Blizzard", "Thunder" }.  Odds and Rarity are read from EffectData.
---
--- Workspace.Cutscene must contain:
---   Anchor        BasePart  — camera origin
---   ImageSurface  BasePart  — display surface
---                              └ SurfaceGui  "ImageSurface"
---                                  └ ImageLabel "ImageSurface"
---   Sunburst      BasePart  — background decoration (rotates during roll)
---                              └ SurfaceGui  "Sunburst"
---                                  └ ImageLabel "Sunburst"
---   ParticleBlock BasePart  — position handed off to ParticlePlayer on landing
---
--- The whole Cutscene model is cloned from ReplicatedStorage.ClientAssets for each
--- roll and destroyed on cleanup.
-
 local TweenService      = game:GetService("TweenService")
 local RunService        = game:GetService("RunService")
 local Players           = game:GetService("Players")
 local UserInputService  = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SignalServiceClient = require(ReplicatedStorage.Modules.SignalServiceClient)
 
 local ClientRollEffects = script.Parent
 local RarityData = require(ClientRollEffects:WaitForChild("RarityData"))
 local EffectData = require(ClientRollEffects:WaitForChild("EffectData"))
 
--- ParticlePlayer is loaded lazily so a missing module never breaks rolls.
--- Hook: ReplicatedStorage.Modules.ParticlePlayer.Play(effectName, position)
 local ParticlePlayer
 pcall(function()
 	ParticlePlayer = require(
@@ -65,7 +41,7 @@ local CURSOR_FOLLOW_SMOOTH = 10   -- lerp speed toward cursor target
 -- Sounds — replace placeholder IDs with your real asset IDs
 local SOUND_OPEN_START = "rbxassetid://0"                -- plays once when the roll sequence begins
 local SOUND_TICK       = "rbxassetid://135006148699863"  -- plays on every effect switch
-local SOUND_PRE_LAND   = "rbxassetid://0"                -- plays 2s before the roll finishes
+local SOUND_PRE_LAND   = "rbxassetid://89841937506750"   -- plays 2s before the roll finishes
 local SOUND_OPEN_END   = "rbxassetid://0"                -- plays when the roll lands
 
 -- Shared font face
@@ -436,17 +412,17 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		--------------------------------------------------------------------
 		-- 5. Sounds
 		--------------------------------------------------------------------
-		local function makeSound(id)
+		local function makeSound(id, volume)
 			local s      = Instance.new("Sound")
 			s.SoundId    = id
-			s.Volume     = 1
+			s.Volume     = volume or 1
 			s.Parent     = workspace
 			return s
 		end
 
 		local startSound   = makeSound(SOUND_OPEN_START)
 		local tickSound    = makeSound(SOUND_TICK)
-		local preLandSound = makeSound(SOUND_PRE_LAND)
+		local preLandSound = makeSound(SOUND_PRE_LAND, 0.7)
 		local endSound     = makeSound(SOUND_OPEN_END)
 
 		startSound:Play()
@@ -535,6 +511,12 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 		-- Result popup
 		local resultGui = buildResultGui(chosenEffect)
+		
+		SignalServiceClient.fireOnSignal("ScreenShake", "RemoteEvent", {{
+			magnitude = 2.25, -- code his to be the predetermined screenshake magnitude. 5 is small, 35 is big
+			duration = 0.6, -- dont touch
+			radius = 150,
+		}})
 
 		--------------------------------------------------------------------
 		-- 9. Hold result on screen
