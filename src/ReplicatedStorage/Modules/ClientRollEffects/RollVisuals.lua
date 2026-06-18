@@ -53,7 +53,7 @@ local FOV_DEFAULT      = 70
 local FOV_ROLL         = 60
 local POST_LAND_PAUSE  = 2.0     -- seconds the result is held on screen
 local SUNBURST_SPEED   = 25      -- degrees per second
-local SOUND_ID         = "rbxassetid://0"  -- TODO: replace with CS:GO unboxing ID
+local SOUND_ID         = "rbxassetid://135006148699863"  -- TODO: replace with CS:GO unboxing ID
 
 -- TweenInfos
 local TI_FADE    = TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Linear)
