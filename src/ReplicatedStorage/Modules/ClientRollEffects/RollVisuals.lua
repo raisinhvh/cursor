@@ -204,7 +204,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		--------------------------------------------------------------------
 		-- 2. Clone cutscene while screen is black
 		--------------------------------------------------------------------
-		local scene         = ReplicatedStorage:WaitForChild("Cutscene"):Clone()
+		local scene         = ReplicatedStorage.ClientAssets:WaitForChild("Cutscene"):Clone()
 		scene.Parent        = workspace
 
 		local anchor        = scene:WaitForChild("Anchor")
