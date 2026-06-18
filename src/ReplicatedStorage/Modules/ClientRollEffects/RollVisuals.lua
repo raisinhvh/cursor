@@ -80,6 +80,7 @@ local TI_SUNBURST_IN   = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.Eas
 local TI_SUNBURST_FADE = TweenInfo.new(0.15, Enum.EasingStyle.Linear)
 local TI_CAMERA_LAND   = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
 local TI_BOUNCE        = TweenInfo.new(0.12, Enum.EasingStyle.Quad,     Enum.EasingDirection.Out)
+local TI_DISPLAY_FADE  = TweenInfo.new(0.25, Enum.EasingStyle.Linear)
 
 ------------------------------------------------------------------------
 -- Weighted random pool
@@ -140,6 +141,17 @@ local function addTextStroke(lbl)
 	stroke.Thickness       = 1.5
 	stroke.Color           = Color3.new(0, 0, 0)
 	stroke.Parent          = lbl
+end
+
+local function fadeOutRollDisplay(imgLabel, labels)
+	TweenService:Create(imgLabel, TI_DISPLAY_FADE, { ImageTransparency = 1 }):Play()
+	for _, lbl in ipairs(labels) do
+		TweenService:Create(lbl, TI_DISPLAY_FADE, { TextTransparency = 1 }):Play()
+		local stroke = lbl:FindFirstChildOfClass("UIStroke")
+		if stroke then
+			TweenService:Create(stroke, TI_DISPLAY_FADE, { Transparency = 1 }):Play()
+		end
+	end
 end
 
 ------------------------------------------------------------------------
@@ -356,11 +368,9 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		camera.CFrame = downCF
 
 		--------------------------------------------------------------------
-		-- 4. Camera intro (elastic down → up), sunburst in, then undarken
+		-- 4. Camera intro (elastic down → up), then undarken
 		--------------------------------------------------------------------
 		TweenService:Create(camera, TI_CAM_IN, { CFrame = targetCF }):Play()
-		TweenService:Create(sunburst, TI_SUNBURST_IN, { Size = origSunburstSize }):Play()
-		TweenService:Create(sunLabel, TI_SUNBURST_FADE, { ImageTransparency = origSunImageTransparency }):Play()
 		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
 
 		--------------------------------------------------------------------
@@ -382,16 +392,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		startSound:Play()
 
 		--------------------------------------------------------------------
-		-- 6. Sunburst spin
-		--------------------------------------------------------------------
-		local sunAngle = 0
-		local sunConn  = RunService.Heartbeat:Connect(function(dt)
-			sunAngle          = sunAngle + dt * SUNBURST_SPEED
-			sunLabel.Rotation = sunAngle
-		end)
-
-		--------------------------------------------------------------------
-		-- 7. Rolling heartbeat
+		-- 6. Rolling heartbeat
 		--
 		--    interval(p) = TICK_FAST × (TICK_SLOW/TICK_FAST)^(p²)
 		--    p² keeps ticks near-60 hz for the first ~70% of the roll and
@@ -444,6 +445,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		--------------------------------------------------------------------
 		-- 8. Landing
 		--    FOV: 55 → 85 fast (punch), then 85 → 70 elastic (settle)
+		--    Sunburst pops in and spins; surface + billboard fade out
 		--------------------------------------------------------------------
 		TweenService:Create(camera, TI_CAMERA_LAND, { CFrame = cameraCFrameWithPitch(targetCF, CAMERA_LAND_PITCH) }):Play()
 
@@ -454,7 +456,18 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 		endSound:Play()
 
-		-- Particle handoff — image stays silhouette-black, particles handle visuals
+		TweenService:Create(sunburst, TI_SUNBURST_IN, { Size = origSunburstSize }):Play()
+		TweenService:Create(sunLabel, TI_SUNBURST_FADE, { ImageTransparency = origSunImageTransparency }):Play()
+
+		local sunAngle = 0
+		local sunConn  = RunService.Heartbeat:Connect(function(dt)
+			sunAngle          = sunAngle + dt * SUNBURST_SPEED
+			sunLabel.Rotation = sunAngle
+		end)
+
+		fadeOutRollDisplay(imgLabel, { nameL, oddsL, rarityL })
+
+		-- Particle handoff — surface fades out, particles handle visuals
 		if ParticlePlayer and ParticlePlayer.Play then
 			ParticlePlayer.Play(chosenEffect, particleBlock.Position)
 		end
