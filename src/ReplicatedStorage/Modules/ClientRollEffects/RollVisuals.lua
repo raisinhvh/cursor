@@ -35,14 +35,13 @@ local BOUNCE_SCALE       = 1.05   -- how much the surface punches on each tick
 local CAMERA_START_PITCH   = -9
 local CAMERA_LAND_PITCH    = 9
 local CAMERA_LAND_PULLBACK = 2    -- studs pulled back on landing tilt
-local CURSOR_FOLLOW_MAX    = 0.75 -- max camera offset in studs
+local CURSOR_FOLLOW_MAX    = 2.5  -- max camera rotation in degrees
 local CURSOR_FOLLOW_SMOOTH = 10   -- lerp speed toward cursor target
 
 -- Sounds — replace placeholder IDs with your real asset IDs
 local SOUND_OPEN_START = "rbxassetid://0"                -- plays once when the roll sequence begins
 local SOUND_TICK       = "rbxassetid://135006148699863"  -- plays on every effect switch
 local SOUND_PRE_LAND   = "rbxassetid://89841937506750"   -- plays 2s before the roll finishes
-local SOUND_OPEN_END   = "rbxassetid://0"                -- plays when the roll lands
 
 -- Shared font face
 local RUBIK_EB = Font.new(
@@ -286,21 +285,21 @@ local function getMouseNormalized()
 	)
 end
 
-local function applyCursorFollow(baseCF, currentOffset, dt)
-	local mouseNorm    = getMouseNormalized()
-	local targetOffset = Vector3.new(
-		mouseNorm.X * CURSOR_FOLLOW_MAX,
+local function applyCursorFollow(baseCF, currentAngles, dt)
+	local mouseNorm     = getMouseNormalized()
+	local targetAngles  = Vector2.new(
 		-mouseNorm.Y * CURSOR_FOLLOW_MAX,
-		0
+		mouseNorm.X * CURSOR_FOLLOW_MAX
 	)
-	local blend        = math.min(1, CURSOR_FOLLOW_SMOOTH * dt)
-	local nextOffset   = currentOffset:Lerp(targetOffset, blend)
+	local blend         = math.min(1, CURSOR_FOLLOW_SMOOTH * dt)
+	local nextAngles    = currentAngles:Lerp(targetAngles, blend)
+	local followRot     = CFrame.Angles(math.rad(nextAngles.X), math.rad(nextAngles.Y), 0)
 
-	return baseCF * CFrame.new(nextOffset), nextOffset
+	return baseCF * followRot, nextAngles
 end
 
 local function makeCursorFollower(getBaseCF)
-	local offset = Vector3.zero
+	local angles = Vector2.zero
 
 	return RunService.RenderStepped:Connect(function(dt)
 		local baseCF
@@ -313,7 +312,7 @@ local function makeCursorFollower(getBaseCF)
 		end
 
 		local cf
-		cf, offset = applyCursorFollow(baseCF, offset, dt)
+		cf, angles = applyCursorFollow(baseCF, angles, dt)
 		camera.CFrame = cf
 	end)
 end
@@ -339,6 +338,8 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 	task.spawn(function()
 		local pool = buildPool(effectsList)
+		local chosenEffectData = EffectData[chosenEffect]
+		local chosenRarityData = chosenEffectData and RarityData[chosenEffectData.Rarity]
 
 		--------------------------------------------------------------------
 		-- 1. Fade to black
@@ -398,7 +399,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		camBase.Value       = downCF
 		camBase.Parent      = scene
 
-		local cursorConn    = makeCursorFollower(function()
+		local cursorConn = makeCursorFollower(function()
 			return camBase.Value
 		end)
 		camera.CFrame       = downCF
@@ -423,7 +424,6 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		local startSound   = makeSound(SOUND_OPEN_START)
 		local tickSound    = makeSound(SOUND_TICK)
 		local preLandSound = makeSound(SOUND_PRE_LAND, 0.7)
-		local endSound     = makeSound(SOUND_OPEN_END)
 
 		startSound:Play()
 
@@ -490,7 +490,19 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 			TweenService:Create(camera,           TI_FOV_SETTLE, { FieldOfView = FOV_DEFAULT }):Play()
 		end)
 
-		endSound:Play()
+		local openSound
+		if chosenRarityData and chosenRarityData.OpenSound then
+			openSound = makeSound(chosenRarityData.OpenSound)
+			openSound:Play()
+		end
+
+		if chosenRarityData and chosenRarityData.CameraShakeConst then
+			SignalServiceClient.fireOnSignal("ScreenShake", "RemoteEvent", {{
+				magnitude = chosenRarityData.CameraShakeConst,
+				duration = 0.6,
+				radius = 150,
+			}})
+		end
 
 		TweenService:Create(sunburst, TI_SUNBURST_IN, { Size = origSunburstSize }):Play()
 		TweenService:Create(sunLabel, TI_SUNBURST_FADE, { ImageTransparency = origSunImageTransparency }):Play()
@@ -511,12 +523,6 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 		-- Result popup
 		local resultGui = buildResultGui(chosenEffect)
-		
-		SignalServiceClient.fireOnSignal("ScreenShake", "RemoteEvent", {{
-			magnitude = 2.25, -- code his to be the predetermined screenshake magnitude. 5 is small, 35 is big
-			duration = 0.6, -- dont touch
-			radius = 150,
-		}})
 
 		--------------------------------------------------------------------
 		-- 9. Hold result on screen
@@ -531,7 +537,9 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		startSound:Destroy()
 		tickSound:Destroy()
 		preLandSound:Destroy()
-		endSound:Destroy()
+		if openSound then
+			openSound:Destroy()
+		end
 
 		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 0 }))
 
