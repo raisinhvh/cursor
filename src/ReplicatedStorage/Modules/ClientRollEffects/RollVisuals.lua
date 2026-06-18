@@ -45,16 +45,18 @@ local camera = workspace.CurrentCamera
 ------------------------------------------------------------------------
 -- Tuning
 ------------------------------------------------------------------------
-local ROLL_DURATION   = 5      -- seconds for the full roll
-local TICK_FAST       = 0.085   -- "super fast" at the start
-local TICK_SLOW       = 0.34   -- slowest tick rate (stays smooth)
-local FADE_DURATION   = 0.15   -- screen crossfade
-local FOV_DEFAULT     = 70
-local FOV_ROLL        = 55     -- FOV during the roll
-local FOV_LAND        = 85     -- FOV punch target on land
-local POST_LAND_PAUSE = 4    -- seconds the result is held on screen
-local SUNBURST_SPEED  = 25     -- degrees per second
-local BOUNCE_SCALE    = 1.05   -- how much the surface punches on each tick
+local ROLL_DURATION      = 5      -- seconds for the full roll
+local TICK_FAST          = 0.085  -- "super fast" at the start
+local TICK_SLOW          = 0.34   -- slowest tick rate (stays smooth)
+local FADE_DURATION      = 0.15   -- screen crossfade
+local FOV_DEFAULT        = 70
+local FOV_ROLL           = 55     -- FOV during the roll
+local FOV_LAND           = 85     -- FOV punch target on land
+local POST_LAND_PAUSE    = 4      -- seconds the result is held on screen
+local SUNBURST_SPEED     = 25     -- degrees per second
+local BOUNCE_SCALE       = 1.05   -- how much the surface punches on each tick
+local CAMERA_START_PITCH = -9
+local CAMERA_LAND_PITCH  = 4
 
 -- Sounds — replace placeholder IDs with your real asset IDs
 local SOUND_OPEN_START = "rbxassetid://0"                -- plays once when the roll sequence begins
@@ -69,14 +71,15 @@ local RUBIK_EB = Font.new(
 )
 
 -- TweenInfos
-local TI_FADE         = TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Linear)
-local TI_FOV_ROLL     = TweenInfo.new(ROLL_DURATION, Enum.EasingStyle.Quad,    Enum.EasingDirection.Out)
-local TI_FOV_PUNCH    = TweenInfo.new(0.12, Enum.EasingStyle.Linear)
-local TI_FOV_SETTLE   = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
-local TI_CAM_IN       = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
-local TI_SUNBURST_IN  = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
-local TI_ANCHOR_LAND  = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
-local TI_BOUNCE       = TweenInfo.new(0.12, Enum.EasingStyle.Quad,     Enum.EasingDirection.Out)
+local TI_FADE          = TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Linear)
+local TI_FOV_ROLL      = TweenInfo.new(ROLL_DURATION, Enum.EasingStyle.Quad,    Enum.EasingDirection.Out)
+local TI_FOV_PUNCH     = TweenInfo.new(0.12, Enum.EasingStyle.Linear)
+local TI_FOV_SETTLE    = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
+local TI_CAM_IN        = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
+local TI_SUNBURST_IN   = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
+local TI_SUNBURST_FADE = TweenInfo.new(0.15, Enum.EasingStyle.Linear)
+local TI_CAMERA_LAND   = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
+local TI_BOUNCE        = TweenInfo.new(0.12, Enum.EasingStyle.Quad,     Enum.EasingDirection.Out)
 
 ------------------------------------------------------------------------
 -- Weighted random pool
@@ -269,8 +272,12 @@ local function makeBouncer(part, origSize)
 	end
 end
 
-local function anchorCFrameForPitch(anchor, pitchDegrees)
-	return CFrame.new(anchor.Position) * CFrame.Angles(math.rad(pitchDegrees), 0, 0)
+local function cframeAtPositionWithPitch(position, pitchDegrees)
+	return CFrame.new(position) * CFrame.Angles(math.rad(pitchDegrees), 0, 0)
+end
+
+local function cameraCFrameWithPitch(cameraCF, pitchDegrees)
+	return cameraCF * CFrame.Angles(math.rad(pitchDegrees), 0, 0)
 end
 
 ------------------------------------------------------------------------
@@ -324,11 +331,13 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 		local origSurfaceSize          = imageSurface.Size
 		local origSunburstSize         = sunburst.Size
+		local origSunImageTransparency = sunLabel.ImageTransparency
 		local bounce                   = makeBouncer(imageSurface, origSurfaceSize)
 		local _, nameL, oddsL, rarityL = buildBillboardGui(imageSurface)
 
-		anchor.CFrame     = anchorCFrameForPitch(anchor, -9)
-		sunburst.Size      = Vector3.zero
+		anchor.CFrame               = cframeAtPositionWithPitch(anchor.Position, CAMERA_START_PITCH)
+		sunburst.Size               = Vector3.zero
+		sunLabel.ImageTransparency  = 1
 
 		--------------------------------------------------------------------
 		-- 3. Camera — position at Anchor, start looking straight down
@@ -351,6 +360,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		--------------------------------------------------------------------
 		TweenService:Create(camera, TI_CAM_IN, { CFrame = targetCF }):Play()
 		TweenService:Create(sunburst, TI_SUNBURST_IN, { Size = origSunburstSize }):Play()
+		TweenService:Create(sunLabel, TI_SUNBURST_FADE, { ImageTransparency = origSunImageTransparency }):Play()
 		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
 
 		--------------------------------------------------------------------
@@ -435,7 +445,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		-- 8. Landing
 		--    FOV: 55 → 85 fast (punch), then 85 → 70 elastic (settle)
 		--------------------------------------------------------------------
-		TweenService:Create(anchor, TI_ANCHOR_LAND, { CFrame = anchorCFrameForPitch(anchor, 4) }):Play()
+		TweenService:Create(camera, TI_CAMERA_LAND, { CFrame = cameraCFrameWithPitch(targetCF, CAMERA_LAND_PITCH) }):Play()
 
 		task.spawn(function()
 			awaitTween(TweenService:Create(camera, TI_FOV_PUNCH,  { FieldOfView = FOV_LAND    }))
