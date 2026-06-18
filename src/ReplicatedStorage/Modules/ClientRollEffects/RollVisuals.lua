@@ -59,6 +59,7 @@ local BOUNCE_SCALE    = 1.05   -- how much the surface punches on each tick
 -- Sounds — replace placeholder IDs with your real asset IDs
 local SOUND_OPEN_START = "rbxassetid://0"                -- plays once when the roll sequence begins
 local SOUND_TICK       = "rbxassetid://135006148699863"  -- plays on every effect switch
+local SOUND_PRE_LAND   = "rbxassetid://0"                -- plays 2s before the roll finishes
 local SOUND_OPEN_END   = "rbxassetid://0"                -- plays when the roll lands
 
 -- Shared font face
@@ -68,12 +69,14 @@ local RUBIK_EB = Font.new(
 )
 
 -- TweenInfos
-local TI_FADE       = TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Linear)
-local TI_FOV_IN     = TweenInfo.new(1.5,  Enum.EasingStyle.Quad,    Enum.EasingDirection.Out)
-local TI_FOV_PUNCH  = TweenInfo.new(0.12, Enum.EasingStyle.Linear)
-local TI_FOV_SETTLE = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
-local TI_CAM_IN     = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
-local TI_BOUNCE     = TweenInfo.new(0.12, Enum.EasingStyle.Quad,     Enum.EasingDirection.Out)
+local TI_FADE         = TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Linear)
+local TI_FOV_ROLL     = TweenInfo.new(ROLL_DURATION, Enum.EasingStyle.Quad,    Enum.EasingDirection.Out)
+local TI_FOV_PUNCH    = TweenInfo.new(0.12, Enum.EasingStyle.Linear)
+local TI_FOV_SETTLE   = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
+local TI_CAM_IN       = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
+local TI_SUNBURST_IN  = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
+local TI_ANCHOR_LAND  = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
+local TI_BOUNCE       = TweenInfo.new(0.12, Enum.EasingStyle.Quad,     Enum.EasingDirection.Out)
 
 ------------------------------------------------------------------------
 -- Weighted random pool
@@ -129,6 +132,13 @@ local function awaitTween(tween)
 	tween.Completed:Wait()
 end
 
+local function addTextStroke(lbl)
+	local stroke           = Instance.new("UIStroke")
+	stroke.Thickness       = 1.5
+	stroke.Color           = Color3.new(0, 0, 0)
+	stroke.Parent          = lbl
+end
+
 ------------------------------------------------------------------------
 -- BillboardGui above the ImageSurface part — cycles info during the roll
 ------------------------------------------------------------------------
@@ -152,6 +162,7 @@ local function buildBillboardGui(part)
 		lbl.FontFace                 = RUBIK_EB
 		lbl.Text                     = ""
 		lbl.Parent                   = bill
+		addTextStroke(lbl)
 		return lbl
 	end
 
@@ -202,6 +213,7 @@ local function buildResultGui(effectName)
 		l.FontFace                 = RUBIK_EB
 		l.Text                     = text
 		l.Parent                   = container
+		addTextStroke(l)
 	end
 
 	lbl("EffectName",  0,    0.44, (effect and effect.DisplayName) or effectName, Color3.new(1, 1, 1))
@@ -307,8 +319,12 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		imgLabel.BackgroundTransparency = 1
 
 		local origSurfaceSize          = imageSurface.Size
+		local origSunburstSize         = sunburst.Size
 		local bounce                   = makeBouncer(imageSurface, origSurfaceSize)
 		local _, nameL, oddsL, rarityL = buildBillboardGui(imageSurface)
+
+		anchor.Orientation = Vector3.new(-9, 0, 0)
+		sunburst.Size      = Vector3.zero
 
 		--------------------------------------------------------------------
 		-- 3. Camera — position at Anchor, start looking straight down
@@ -327,10 +343,10 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		camera.CFrame = downCF
 
 		--------------------------------------------------------------------
-		-- 4. Camera intro (elastic down → up), FOV 70 → 55, then undarken
+		-- 4. Camera intro (elastic down → up), sunburst in, then undarken
 		--------------------------------------------------------------------
-		TweenService:Create(camera, TI_CAM_IN, { CFrame      = targetCF }):Play()
-		TweenService:Create(camera, TI_FOV_IN, { FieldOfView = FOV_ROLL  }):Play()
+		TweenService:Create(camera, TI_CAM_IN, { CFrame = targetCF }):Play()
+		TweenService:Create(sunburst, TI_SUNBURST_IN, { Size = origSunburstSize }):Play()
 		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
 
 		--------------------------------------------------------------------
@@ -344,9 +360,10 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 			return s
 		end
 
-		local startSound = makeSound(SOUND_OPEN_START)
-		local tickSound  = makeSound(SOUND_TICK)
-		local endSound   = makeSound(SOUND_OPEN_END)
+		local startSound   = makeSound(SOUND_OPEN_START)
+		local tickSound    = makeSound(SOUND_TICK)
+		local preLandSound = makeSound(SOUND_PRE_LAND)
+		local endSound     = makeSound(SOUND_OPEN_END)
 
 		startSound:Play()
 
@@ -370,11 +387,19 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		bounce()
 		tickSound:Play()
 
+		TweenService:Create(camera, TI_FOV_ROLL, { FieldOfView = FOV_ROLL }):Play()
+
 		local signal    = Instance.new("BindableEvent")
 		local startTime = os.clock()
 		local lastTick  = startTime
 		local landed    = false
 		local rollConn
+
+		task.delay(ROLL_DURATION - 2, function()
+			if not landed then
+				preLandSound:Play()
+			end
+		end)
 
 		rollConn = RunService.Heartbeat:Connect(function()
 			if landed then return end
@@ -406,6 +431,8 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		-- 8. Landing
 		--    FOV: 55 → 85 fast (punch), then 85 → 70 elastic (settle)
 		--------------------------------------------------------------------
+		TweenService:Create(anchor, TI_ANCHOR_LAND, { Orientation = Vector3.new(4, 0, 0) }):Play()
+
 		task.spawn(function()
 			awaitTween(TweenService:Create(camera, TI_FOV_PUNCH,  { FieldOfView = FOV_LAND    }))
 			TweenService:Create(camera,           TI_FOV_SETTLE, { FieldOfView = FOV_DEFAULT }):Play()
@@ -433,6 +460,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		sunConn:Disconnect()
 		startSound:Destroy()
 		tickSound:Destroy()
+		preLandSound:Destroy()
 		endSound:Destroy()
 
 		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 0 }))
