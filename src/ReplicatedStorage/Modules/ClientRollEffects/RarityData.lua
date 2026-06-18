@@ -1,0 +1,55 @@
+-- ModuleScript: ReplicatedStorage.Modules.ClientRollEffects.RarityData
+--
+-- All rarity tiers used by the rolling system.
+-- Add, remove, or recolor entries to match your game's rarity ladder.
+-- The Tier field controls sort order (1 = most common).
+
+return {
+	Common = {
+		Tier        = 1,
+		DisplayName = "Common",
+		Color       = Color3.fromRGB(176, 176, 176),
+	},
+
+	Uncommon = {
+		Tier        = 2,
+		DisplayName = "Uncommon",
+		Color       = Color3.fromRGB(94, 196, 94),
+	},
+
+	Rare = {
+		Tier        = 3,
+		DisplayName = "Rare",
+		Color       = Color3.fromRGB(73, 143, 225),
+	},
+
+	Epic = {
+		Tier        = 4,
+		DisplayName = "Epic",
+		Color       = Color3.fromRGB(163, 73, 225),
+	},
+
+	Legendary = {
+		Tier        = 5,
+		DisplayName = "Legendary",
+		Color       = Color3.fromRGB(255, 170, 0),
+	},
+
+	Mythical = {
+		Tier        = 6,
+		DisplayName = "Mythical",
+		Color       = Color3.fromRGB(220, 50, 50),
+	},
+
+	Divine = {
+		Tier        = 7,
+		DisplayName = "Divine",
+		Color       = Color3.fromRGB(120, 220, 255),
+	},
+
+	Prismatic = {
+		Tier        = 8,
+		DisplayName = "Prismatic",
+		Color       = Color3.fromRGB(255, 100, 220),
+	},
+}
