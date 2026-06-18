@@ -46,13 +46,13 @@ local camera = workspace.CurrentCamera
 -- Tuning
 ------------------------------------------------------------------------
 local ROLL_DURATION   = 5      -- seconds for the full roll
-local TICK_FAST       = 0.09   -- "super fast" at the start
+local TICK_FAST       = 0.085   -- "super fast" at the start
 local TICK_SLOW       = 0.34   -- slowest tick rate (stays smooth)
 local FADE_DURATION   = 0.15   -- screen crossfade
 local FOV_DEFAULT     = 70
 local FOV_ROLL        = 55     -- FOV during the roll
 local FOV_LAND        = 85     -- FOV punch target on land
-local POST_LAND_PAUSE = 1.0    -- seconds the result is held on screen
+local POST_LAND_PAUSE = 4    -- seconds the result is held on screen
 local SUNBURST_SPEED  = 25     -- degrees per second
 local BOUNCE_SCALE    = 1.05   -- how much the surface punches on each tick
 
@@ -304,7 +304,6 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 			:WaitForChild("Sunburst")
 
 		-- SurfaceGui shows only the image; background must be transparent
-		imgGui.BackgroundTransparency   = 1
 		imgLabel.BackgroundTransparency = 1
 
 		local origSurfaceSize          = imageSurface.Size
