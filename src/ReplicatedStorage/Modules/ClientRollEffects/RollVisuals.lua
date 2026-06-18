@@ -47,13 +47,17 @@ local camera = workspace.CurrentCamera
 ------------------------------------------------------------------------
 local ROLL_DURATION    = 3       -- seconds for the full roll
 local TICK_FAST        = 0.016   -- ~60 hz — "super fast" at the start
-local TICK_SLOW        = 0.55    -- ~2 ticks/sec — "super slow" near landing
+local TICK_SLOW        = 0.2     -- ~5 hz  — "super slow" near landing (stays smooth)
 local FADE_DURATION    = 0.35    -- screen crossfade
 local FOV_DEFAULT      = 70
 local FOV_ROLL         = 60
 local POST_LAND_PAUSE  = 2.0     -- seconds the result is held on screen
 local SUNBURST_SPEED   = 25      -- degrees per second
-local SOUND_ID         = "rbxassetid://135006148699863"  -- TODO: replace with CS:GO unboxing ID
+
+-- Sounds — replace placeholder IDs with your real asset IDs
+local SOUND_OPEN_START = "rbxassetid://0"                    -- plays once when the roll sequence begins
+local SOUND_TICK       = "rbxassetid://135006148699863"      -- plays on every effect switch during the roll
+local SOUND_OPEN_END   = "rbxassetid://0"                    -- plays when the roll lands on the chosen effect
 
 -- TweenInfos
 local TI_FADE    = TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Linear)
@@ -133,7 +137,7 @@ local function buildTextLabels(surfaceGui)
 		lbl.BackgroundTransparency   = 1
 		lbl.TextColor3               = Color3.new(1, 1, 1)
 		lbl.TextScaled               = true
-		lbl.Font                     = Enum.Font.GothamBold
+		lbl.FontFace                 = Font.new("rbxassetid://12187365977")
 		lbl.Text                     = ""
 		lbl.ZIndex                   = z
 		lbl.Parent                   = surfaceGui
@@ -252,13 +256,21 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
 
 		--------------------------------------------------------------------
-		-- 5. Unboxing sound (placeholder ID — swap in your CS:GO sound)
+		-- 5. Sounds
 		--------------------------------------------------------------------
-		local snd     = Instance.new("Sound")
-		snd.SoundId   = SOUND_ID
-		snd.Volume    = 1
-		snd.Parent    = workspace
-		snd:Play()
+		local function makeSound(id)
+			local s      = Instance.new("Sound")
+			s.SoundId    = id
+			s.Volume     = 1
+			s.Parent     = workspace
+			return s
+		end
+
+		local startSound = makeSound(SOUND_OPEN_START)
+		local tickSound  = makeSound(SOUND_TICK)
+		local endSound   = makeSound(SOUND_OPEN_END)
+
+		startSound:Play()
 
 		--------------------------------------------------------------------
 		-- 6. Sunburst spin (visual flair during the roll)
@@ -272,11 +284,19 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		--------------------------------------------------------------------
 		-- 7. Rolling heartbeat — exponential slowdown over ROLL_DURATION
 		--
-		--    interval(progress) = TICK_FAST × (TICK_SLOW/TICK_FAST)^progress
-		--    At progress=0  →  TICK_FAST  (~60 hz, "super fast")
-		--    At progress=1  →  TICK_SLOW  (~2 hz,  "super slow")
+		--    interval(p) = TICK_FAST × (TICK_SLOW/TICK_FAST)^(p²)
+		--
+		--    Squaring progress keeps ticks fast through ~70% of the roll
+		--    and only decelerates noticeably in the final stretch, avoiding
+		--    the choppy slow-crawl of a plain linear exponent.
+		--
+		--    At p=0.0  → TICK_FAST (~60 hz)
+		--    At p=0.7  → ~19 hz   (still looks smooth)
+		--    At p=0.9  → ~9 hz
+		--    At p=1.0  → TICK_SLOW (~5 hz, visibly slow but not choppy)
 		--------------------------------------------------------------------
 		refreshDisplay(pickRandom(pool), imgLabel, nameL, oddsL, rarityL)
+		tickSound:Play()
 
 		local signal    = Instance.new("BindableEvent")
 		local startTime = os.clock()
@@ -289,7 +309,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 			local now      = os.clock()
 			local progress = math.min((now - startTime) / ROLL_DURATION, 1)
-			local interval = TICK_FAST * ((TICK_SLOW / TICK_FAST) ^ progress)
+			local interval = TICK_FAST * ((TICK_SLOW / TICK_FAST) ^ (progress ^ 2))
 
 			if progress >= 1 then
 				landed = true
@@ -302,6 +322,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 			if now - lastTick >= interval then
 				lastTick = now
 				refreshDisplay(pickRandom(pool), imgLabel, nameL, oddsL, rarityL)
+				tickSound:Play()
 			end
 		end)
 
@@ -313,6 +334,8 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		--------------------------------------------------------------------
 		-- FOV elastic snap back to 70 the instant the roll lands
 		TweenService:Create(camera, TI_FOV_OUT, { FieldOfView = FOV_DEFAULT }):Play()
+
+		endSound:Play()
 
 		-- Particle handoff — image stays silhouette-black, particles handle visuals
 		if ParticlePlayer and ParticlePlayer.Play then
@@ -329,8 +352,9 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		-- 10. Tear down
 		--------------------------------------------------------------------
 		sunConn:Disconnect()
-		snd:Stop()
-		snd:Destroy()
+		startSound:Destroy()
+		tickSound:Destroy()
+		endSound:Destroy()
 
 		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 0 }))
 
