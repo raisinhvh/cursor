@@ -9,27 +9,27 @@
 return {
 	["Inferno"] = {
 		DisplayName = "Inferno",
-		Image       = "rbxassetid://0",   -- TODO: replace with real asset ID
+		Image       = "http://www.roblox.com/asset/?id=8508980527",   -- TODO: replace with real asset ID
 	},
 
 	["Blizzard"] = {
 		DisplayName = "Blizzard",
-		Image       = "rbxassetid://0",
+		Image       = "http://www.roblox.com/asset/?id=130218740",
 	},
 
 	["Thunder"] = {
 		DisplayName = "Thunder",
-		Image       = "rbxassetid://0",
+		Image       = "http://www.roblox.com/asset/?id=6673967738",
 	},
 
 	["Void"] = {
 		DisplayName = "Void",
-		Image       = "rbxassetid://0",
+		Image       = "http://www.roblox.com/asset/?id=6344756217",
 	},
 
 	["Celestial"] = {
 		DisplayName = "Celestial",
-		Image       = "rbxassetid://0",
+		Image       = "http://www.roblox.com/asset/?id=1177150746",
 	},
 
 	-- Add further effects following the same pattern.
