@@ -269,6 +269,10 @@ local function makeBouncer(part, origSize)
 	end
 end
 
+local function anchorCFrameForPitch(anchor, pitchDegrees)
+	return CFrame.new(anchor.Position) * CFrame.Angles(math.rad(pitchDegrees), 0, 0)
+end
+
 ------------------------------------------------------------------------
 -- Public API
 ------------------------------------------------------------------------
@@ -323,7 +327,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		local bounce                   = makeBouncer(imageSurface, origSurfaceSize)
 		local _, nameL, oddsL, rarityL = buildBillboardGui(imageSurface)
 
-		anchor.Orientation = Vector3.new(-9, 0, 0)
+		anchor.CFrame     = anchorCFrameForPitch(anchor, -9)
 		sunburst.Size      = Vector3.zero
 
 		--------------------------------------------------------------------
@@ -431,7 +435,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		-- 8. Landing
 		--    FOV: 55 → 85 fast (punch), then 85 → 70 elastic (settle)
 		--------------------------------------------------------------------
-		TweenService:Create(anchor, TI_ANCHOR_LAND, { Orientation = Vector3.new(4, 0, 0) }):Play()
+		TweenService:Create(anchor, TI_ANCHOR_LAND, { CFrame = anchorCFrameForPitch(anchor, 4) }):Play()
 
 		task.spawn(function()
 			awaitTween(TweenService:Create(camera, TI_FOV_PUNCH,  { FieldOfView = FOV_LAND    }))
