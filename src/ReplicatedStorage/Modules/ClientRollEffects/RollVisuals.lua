@@ -18,8 +18,8 @@
 --                                  └ ImageLabel "Sunburst"
 --   ParticleBlock BasePart  — position handed off to ParticlePlayer on landing
 --
--- The whole Cutscene model is cloned from ReplicatedStorage for each roll and
--- destroyed on cleanup.
+-- The whole Cutscene model is cloned from ReplicatedStorage.ClientAssets for each
+-- roll and destroyed on cleanup.
 
 local TweenService      = game:GetService("TweenService")
 local RunService        = game:GetService("RunService")
@@ -45,31 +45,38 @@ local camera = workspace.CurrentCamera
 ------------------------------------------------------------------------
 -- Tuning
 ------------------------------------------------------------------------
-local ROLL_DURATION    = 5       -- seconds for the full roll
-local TICK_FAST        = 0.09   -- ~60 hz — "super fast" at the start
-local TICK_SLOW        = 0.34    -- ~5 hz  — "super slow" near landing (stays smooth)
-local FADE_DURATION    = 0.15    -- screen crossfade
-local FOV_DEFAULT      = 70
-local FOV_ROLL         = 60
-local POST_LAND_PAUSE  = 1.0     -- seconds the result is held on screen
-local SUNBURST_SPEED   = 25      -- degrees per second
+local ROLL_DURATION   = 5      -- seconds for the full roll
+local TICK_FAST       = 0.09   -- "super fast" at the start
+local TICK_SLOW       = 0.34   -- slowest tick rate (stays smooth)
+local FADE_DURATION   = 0.15   -- screen crossfade
+local FOV_DEFAULT     = 70
+local FOV_ROLL        = 55     -- FOV during the roll
+local FOV_LAND        = 85     -- FOV punch target on land
+local POST_LAND_PAUSE = 1.0    -- seconds the result is held on screen
+local SUNBURST_SPEED  = 25     -- degrees per second
+local BOUNCE_SCALE    = 1.05   -- how much the surface punches on each tick
 
 -- Sounds — replace placeholder IDs with your real asset IDs
-local SOUND_OPEN_START = "rbxassetid://0"                    -- plays once when the roll sequence begins
-local SOUND_TICK       = "rbxassetid://135006148699863"      -- plays on every effect switch during the roll
-local SOUND_OPEN_END   = "rbxassetid://0"                    -- plays when the roll lands on the chosen effect
+local SOUND_OPEN_START = "rbxassetid://0"                -- plays once when the roll sequence begins
+local SOUND_TICK       = "rbxassetid://135006148699863"  -- plays on every effect switch
+local SOUND_OPEN_END   = "rbxassetid://0"                -- plays when the roll lands
+
+-- Shared font face
+local RUBIK_EB = Font.new(
+	"rbxasset://fonts/families/Rubik.json",
+	Enum.FontWeight.ExtraBold
+)
 
 -- TweenInfos
-local TI_FADE    = TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Linear)
-local TI_FOV_IN  = TweenInfo.new(1.5,  Enum.EasingStyle.Quad,    Enum.EasingDirection.Out)
-local TI_FOV_OUT = TweenInfo.new(0.55, Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
-local TI_CAM_IN  = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
+local TI_FADE       = TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Linear)
+local TI_FOV_IN     = TweenInfo.new(1.5,  Enum.EasingStyle.Quad,    Enum.EasingDirection.Out)
+local TI_FOV_PUNCH  = TweenInfo.new(0.12, Enum.EasingStyle.Linear)
+local TI_FOV_SETTLE = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
+local TI_CAM_IN     = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
+local TI_BOUNCE     = TweenInfo.new(0.12, Enum.EasingStyle.Quad,     Enum.EasingDirection.Out)
 
 ------------------------------------------------------------------------
 -- Weighted random pool
--- Each effect is added (odds × 1000) times so fractional weights resolve
--- to whole-number slot counts without bias.
--- effectsList is a plain array of effect name strings.
 ------------------------------------------------------------------------
 local function buildPool(effectsList)
 	local pool = {}
@@ -96,19 +103,19 @@ local function toFraction(odds)
 end
 
 ------------------------------------------------------------------------
--- Fade overlay (ScreenGui with a black Frame)
+-- Fade overlay
 ------------------------------------------------------------------------
 local function makeFadeOverlay()
-	local gui          = Instance.new("ScreenGui")
-	gui.Name           = "RollFade"
-	gui.IgnoreGuiInset = true
-	gui.ResetOnSpawn   = false
-	gui.DisplayOrder   = 999
+	local gui           = Instance.new("ScreenGui")
+	gui.Name            = "RollFade"
+	gui.IgnoreGuiInset  = true
+	gui.ResetOnSpawn    = false
+	gui.DisplayOrder    = 999
 
 	local frame                    = Instance.new("Frame")
 	frame.Size                     = UDim2.fromScale(1, 1)
 	frame.BackgroundColor3         = Color3.new(0, 0, 0)
-	frame.BackgroundTransparency   = 1  -- invisible initially
+	frame.BackgroundTransparency   = 1
 	frame.BorderSizePixel          = 0
 	frame.ZIndex                   = 100
 	frame.Parent                   = gui
@@ -117,46 +124,101 @@ local function makeFadeOverlay()
 	return gui, frame
 end
 
--- Plays a tween and yields until it completes. Must be called inside a task.
 local function awaitTween(tween)
 	tween:Play()
 	tween.Completed:Wait()
 end
 
 ------------------------------------------------------------------------
--- Text labels on ImageSurface's SurfaceGui
--- Three stacked labels: effect name → odds fraction → rarity name
+-- BillboardGui above the ImageSurface part — cycles info during the roll
 ------------------------------------------------------------------------
-local function buildTextLabels(surfaceGui)
-	local function make(name, anchorY, height, z)
+local function buildBillboardGui(part)
+	local bill              = Instance.new("BillboardGui")
+	bill.Name               = "RollInfo"
+	bill.Size               = UDim2.fromOffset(500, 175)
+	bill.StudsOffset        = Vector3.new(0, part.Size.Y * 0.5 + 2.5, 0)
+	bill.AlwaysOnTop        = false
+	bill.LightInfluence     = 0
+	bill.Parent             = part
+
+	local function make(name, y, h)
 		local lbl                    = Instance.new("TextLabel")
 		lbl.Name                     = name
-		lbl.Size                     = UDim2.new(0.9, 0, height, 0)
-		lbl.AnchorPoint              = Vector2.new(0.5, 0.5)
-		lbl.Position                 = UDim2.new(0.5, 0, anchorY, 0)
+		lbl.Size                     = UDim2.new(1, 0, h, 0)
+		lbl.Position                 = UDim2.new(0, 0, y, 0)
 		lbl.BackgroundTransparency   = 1
 		lbl.TextColor3               = Color3.new(1, 1, 1)
 		lbl.TextScaled               = true
-		lbl.FontFace                 = Font.new("rbxassetid://12187365977")
+		lbl.FontFace                 = RUBIK_EB
 		lbl.Text                     = ""
-		lbl.ZIndex                   = z
-		lbl.Parent                   = surfaceGui
+		lbl.Parent                   = bill
 		return lbl
 	end
 
-	-- Lower third of the surface; each label sits below the previous
-	local nameLabel   = make("EffectName",  0.68, 0.12, 3)
-	local oddsLabel   = make("OddsLabel",   0.80, 0.08, 3)
-	local rarityLabel = make("RarityLabel", 0.89, 0.09, 3)
+	local nameLabel   = make("EffectName",  0,    0.44)
+	local oddsLabel   = make("OddsLabel",   0.44, 0.28)
+	local rarityLabel = make("RarityLabel", 0.72, 0.28)
 
-	return nameLabel, oddsLabel, rarityLabel
+	return bill, nameLabel, oddsLabel, rarityLabel
 end
 
 ------------------------------------------------------------------------
--- Refresh the display surface for a given effect name.
--- All metadata is sourced from EffectData and RarityData.
--- The image is ALWAYS silhouette-black (ImageColor3 = 0,0,0) —
--- the particle sequence handles the final reveal.
+-- ScreenGui popup — shown when the chosen effect lands
+------------------------------------------------------------------------
+local function buildResultGui(effectName)
+	local effect = EffectData[effectName]
+	local rarity = effect and RarityData[effect.Rarity]
+	local col    = rarity and rarity.Color or Color3.new(1, 1, 1)
+
+	local gui           = Instance.new("ScreenGui")
+	gui.Name            = "RollResult"
+	gui.IgnoreGuiInset  = true
+	gui.ResetOnSpawn    = false
+	gui.DisplayOrder    = 50
+	gui.Parent          = player.PlayerGui
+
+	local container                  = Instance.new("Frame")
+	container.Name                   = "Container"
+	container.Size                   = UDim2.new(0.38, 0, 0.2, 0)
+	container.AnchorPoint            = Vector2.new(0.5, 1)
+	container.Position               = UDim2.new(0.5, 0, 0.96, 0)
+	container.BackgroundTransparency = 1
+	container.BorderSizePixel        = 0
+	container.Parent                 = gui
+
+	-- UIScale drives the pop-in bounce
+	local uiScale       = Instance.new("UIScale")
+	uiScale.Scale       = 0
+	uiScale.Parent      = container
+
+	local function lbl(name, y, h, text, color)
+		local l                    = Instance.new("TextLabel")
+		l.Name                     = name
+		l.Size                     = UDim2.new(1, 0, h, 0)
+		l.Position                 = UDim2.new(0, 0, y, 0)
+		l.BackgroundTransparency   = 1
+		l.TextColor3               = color
+		l.TextScaled               = true
+		l.FontFace                 = RUBIK_EB
+		l.Text                     = text
+		l.Parent                   = container
+	end
+
+	lbl("EffectName",  0,    0.44, (effect and effect.DisplayName) or effectName, Color3.new(1, 1, 1))
+	lbl("OddsLabel",   0.44, 0.28, effect and toFraction(effect.Odds) or "",      col)
+	lbl("RarityLabel", 0.72, 0.28, (effect and effect.Rarity) or "",              col)
+
+	-- Pop-in: scale from 0 → 1 with a Back.Out bounce
+	TweenService:Create(uiScale,
+		TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Scale = 1 }
+	):Play()
+
+	return gui
+end
+
+------------------------------------------------------------------------
+-- Per-tick display refresh
 ------------------------------------------------------------------------
 local function refreshDisplay(effectName, imgLabel, nameL, oddsL, rarityL)
 	local effect = EffectData[effectName]
@@ -165,7 +227,8 @@ local function refreshDisplay(effectName, imgLabel, nameL, oddsL, rarityL)
 	if effect and effect.Image then
 		imgLabel.Image = effect.Image
 	end
-	imgLabel.ImageColor3 = Color3.new(0, 0, 0)
+	imgLabel.ImageColor3          = Color3.new(0, 0, 0)
+	imgLabel.BackgroundTransparency = 1
 
 	nameL.Text   = (effect and effect.DisplayName) or effectName
 	oddsL.Text   = effect and toFraction(effect.Odds) or ""
@@ -175,6 +238,23 @@ local function refreshDisplay(effectName, imgLabel, nameL, oddsL, rarityL)
 	oddsL.TextColor3   = col
 	rarityL.TextColor3 = col
 	nameL.TextColor3   = Color3.new(1, 1, 1)
+end
+
+------------------------------------------------------------------------
+-- Tick bounce: snap the ImageSurface part slightly large, tween back.
+-- Skips if the previous bounce is still running so fast ticks don't jitter.
+------------------------------------------------------------------------
+local function makeBouncer(part, origSize)
+	local activeTween = nil
+
+	return function()
+		if activeTween and activeTween.PlaybackState == Enum.PlaybackState.Playing then
+			return
+		end
+		part.Size  = origSize * BOUNCE_SCALE
+		activeTween = TweenService:Create(part, TI_BOUNCE, { Size = origSize })
+		activeTween:Play()
+	end
 end
 
 ------------------------------------------------------------------------
@@ -216,16 +296,20 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		local sunburst      = scene:WaitForChild("Sunburst")
 		local particleBlock = scene:WaitForChild("ParticleBlock")
 
-		-- ImageSurface Part → SurfaceGui "ImageSurface" → ImageLabel "ImageSurface"
 		local imgGui   = imageSurface:WaitForChild("ImageSurface")
 		local imgLabel = imgGui:WaitForChild("ImageSurface")
 
-		-- Sunburst Part → SurfaceGui "Sunburst" → ImageLabel "Sunburst"
 		local sunLabel = sunburst
 			:WaitForChild("Sunburst")
 			:WaitForChild("Sunburst")
 
-		local nameL, oddsL, rarityL = buildTextLabels(imgGui)
+		-- SurfaceGui shows only the image; background must be transparent
+		imgGui.BackgroundTransparency   = 1
+		imgLabel.BackgroundTransparency = 1
+
+		local origSurfaceSize          = imageSurface.Size
+		local bounce                   = makeBouncer(imageSurface, origSurfaceSize)
+		local _, nameL, oddsL, rarityL = buildBillboardGui(imageSurface)
 
 		--------------------------------------------------------------------
 		-- 3. Camera — position at Anchor, start looking straight down
@@ -236,23 +320,18 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		camera.CameraType  = Enum.CameraType.Scriptable
 		camera.FieldOfView = FOV_DEFAULT
 
-		-- Target: anchor position → looking at ImageSurface
 		local targetCF = CFrame.lookAt(anchor.Position, imageSurface.Position)
-
-		-- Down start: tiny forward bias prevents gimbal at exactly (0,-1,0)
-		local downCF = CFrame.lookAt(
+		local downCF   = CFrame.lookAt(
 			anchor.Position,
 			anchor.Position + Vector3.new(0.001, -1, 0.001)
 		)
 		camera.CFrame = downCF
 
 		--------------------------------------------------------------------
-		-- 4. Begin camera intro (elastic down→up) and FOV tween, then
-		--    undarken the screen so the player sees the cutscene mid-sweep
+		-- 4. Camera intro (elastic down → up), FOV 70 → 55, then undarken
 		--------------------------------------------------------------------
 		TweenService:Create(camera, TI_CAM_IN, { CFrame      = targetCF }):Play()
 		TweenService:Create(camera, TI_FOV_IN, { FieldOfView = FOV_ROLL  }):Play()
-
 		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
 
 		--------------------------------------------------------------------
@@ -273,7 +352,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		startSound:Play()
 
 		--------------------------------------------------------------------
-		-- 6. Sunburst spin (visual flair during the roll)
+		-- 6. Sunburst spin
 		--------------------------------------------------------------------
 		local sunAngle = 0
 		local sunConn  = RunService.Heartbeat:Connect(function(dt)
@@ -282,20 +361,14 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		end)
 
 		--------------------------------------------------------------------
-		-- 7. Rolling heartbeat — exponential slowdown over ROLL_DURATION
+		-- 7. Rolling heartbeat
 		--
 		--    interval(p) = TICK_FAST × (TICK_SLOW/TICK_FAST)^(p²)
-		--
-		--    Squaring progress keeps ticks fast through ~70% of the roll
-		--    and only decelerates noticeably in the final stretch, avoiding
-		--    the choppy slow-crawl of a plain linear exponent.
-		--
-		--    At p=0.0  → TICK_FAST (~60 hz)
-		--    At p=0.7  → ~19 hz   (still looks smooth)
-		--    At p=0.9  → ~9 hz
-		--    At p=1.0  → TICK_SLOW (~5 hz, visibly slow but not choppy)
+		--    p² keeps ticks near-60 hz for the first ~70% of the roll and
+		--    only decelerates visibly in the final stretch.
 		--------------------------------------------------------------------
 		refreshDisplay(pickRandom(pool), imgLabel, nameL, oddsL, rarityL)
+		bounce()
 		tickSound:Play()
 
 		local signal    = Instance.new("BindableEvent")
@@ -322,6 +395,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 			if now - lastTick >= interval then
 				lastTick = now
 				refreshDisplay(pickRandom(pool), imgLabel, nameL, oddsL, rarityL)
+				bounce()
 				tickSound:Play()
 			end
 		end)
@@ -331,9 +405,12 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 		--------------------------------------------------------------------
 		-- 8. Landing
+		--    FOV: 55 → 85 fast (punch), then 85 → 70 elastic (settle)
 		--------------------------------------------------------------------
-		-- FOV elastic snap back to 70 the instant the roll lands
-		TweenService:Create(camera, TI_FOV_OUT, { FieldOfView = FOV_DEFAULT }):Play()
+		task.spawn(function()
+			awaitTween(TweenService:Create(camera, TI_FOV_PUNCH,  { FieldOfView = FOV_LAND    }))
+			TweenService:Create(camera,           TI_FOV_SETTLE, { FieldOfView = FOV_DEFAULT }):Play()
+		end)
 
 		endSound:Play()
 
@@ -342,6 +419,9 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 			ParticlePlayer.Play(chosenEffect, particleBlock.Position)
 		end
 		-- placeholder: wire up ReplicatedStorage.Modules.ParticlePlayer when ready
+
+		-- Result popup
+		local resultGui = buildResultGui(chosenEffect)
 
 		--------------------------------------------------------------------
 		-- 9. Hold result on screen
@@ -361,6 +441,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		camera.CameraType  = prevCamType
 		camera.FieldOfView = prevFOV
 		scene:Destroy()
+		resultGui:Destroy()
 
 		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
 
