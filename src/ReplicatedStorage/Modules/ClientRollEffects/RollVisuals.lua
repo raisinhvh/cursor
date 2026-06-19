@@ -317,8 +317,8 @@ local function makeBouncer(part, origSize)
 	local activeTween = nil
 
 	return function(duration)
-		if activeTween then
-			activeTween:Cancel()
+		if activeTween and activeTween.PlaybackState == Enum.PlaybackState.Playing then
+			return
 		end
 		part.Size = origSize * BOUNCE_SCALE
 		activeTween = TweenService:Create(
@@ -556,35 +556,39 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 		TweenService:Create(camera, TI_FOV_ROLL, { FieldOfView = FOV_ROLL }):Play()
 
-		local signal    = Instance.new("BindableEvent")
-		local startTime = os.clock()
-		local lastTick  = startTime
-		local landed    = false
+		local signal           = Instance.new("BindableEvent")
+		local elapsed          = 0
+		local timeSinceLastTick = 0
+		local landed           = false
+		local preLandPlayed    = false
 		local rollConn
 
-		task.delay(ROLL_DURATION - 2, function()
-			if not landed then
-				preLandSound:Play()
-			end
-		end)
-
-		rollConn = RunService.Heartbeat:Connect(function()
+		rollConn = RunService.Heartbeat:Connect(function(dt)
 			if landed then return end
 
-			local now      = os.clock()
-			local progress = math.min((now - startTime) / ROLL_DURATION, 1)
+			elapsed += dt
+			timeSinceLastTick += dt
+
+			local progress = math.min(elapsed / ROLL_DURATION, 1)
 			local interval = getTickInterval(progress)
+
+			if not preLandPlayed and elapsed >= ROLL_DURATION - 2 then
+				preLandPlayed = true
+				preLandSound:Play()
+			end
 
 			if progress >= 1 then
 				landed = true
 				rollConn:Disconnect()
+				bill.StudsOffset = origStudsOffset
+				imageSurface.Size = origSurfaceSize
 				refreshDisplay(chosenEffect, imgLabel, nameL, oddsL, rarityL)
 				signal:Fire()
 				return
 			end
 
-			if now - lastTick >= interval then
-				lastTick = now
+			if timeSinceLastTick >= interval then
+				timeSinceLastTick -= interval
 				playRollTick(progress)
 			end
 		end)
@@ -734,6 +738,7 @@ function RollVisuals.Inspect(effectName, onClose)
 
 		local replayActive = true
 		local inspectGui
+		local resultGui
 		local closed = false
 		local shakeResumeToken = 0
 
@@ -773,6 +778,9 @@ function RollVisuals.Inspect(effectName, onClose)
 			if inspectGui then
 				inspectGui:Destroy()
 			end
+			if resultGui then
+				resultGui:Destroy()
+			end
 
 			awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
 			fadeGui:Destroy()
@@ -785,6 +793,7 @@ function RollVisuals.Inspect(effectName, onClose)
 		end
 
 		inspectGui = buildInspectGui(closeInspect)
+		resultGui = buildResultGui(effectName)
 
 		runEffectReplayLoop(effectName, particleBlock, rarityData, function()
 			return replayActive
