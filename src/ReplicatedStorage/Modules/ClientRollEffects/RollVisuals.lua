@@ -29,6 +29,8 @@ local POST_LAND_PAUSE    = 4      -- seconds the result is held on screen
 local EFFECT_LOOP_INTERVAL = 2.5  -- seconds between effect replays
 local SUNBURST_SPEED     = 25     -- degrees per second
 local BOUNCE_SCALE       = 1.05   -- how much the surface punches on each tick
+local BILLBOARD_DROP     = 0.35   -- studs the billboard starts below its rest position
+local TICK_TWEEN_FRACTION = 0.85  -- tween length as a fraction of time until the next tick
 local CAMERA_START_PITCH   = -9
 local CURSOR_FOLLOW_MAX    = 2.5  -- max camera rotation in degrees
 local CURSOR_FOLLOW_SMOOTH = 10   -- lerp speed toward cursor target
@@ -52,7 +54,6 @@ local TI_FOV_SETTLE    = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.Eas
 local TI_CAM_IN        = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
 local TI_SUNBURST_IN   = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
 local TI_SUNBURST_FADE = TweenInfo.new(0.15, Enum.EasingStyle.Linear)
-local TI_BOUNCE        = TweenInfo.new(0.12, Enum.EasingStyle.Quad,     Enum.EasingDirection.Out)
 local TI_DISPLAY_FADE  = TweenInfo.new(0.25, Enum.EasingStyle.Linear)
 
 ------------------------------------------------------------------------
@@ -240,6 +241,17 @@ local function buildInspectGui(onClose)
 end
 
 ------------------------------------------------------------------------
+-- Tick pacing — fast at the start, slow near the end
+------------------------------------------------------------------------
+local function getTickInterval(progress)
+	return TICK_FAST * ((TICK_SLOW / TICK_FAST) ^ (progress ^ 2))
+end
+
+local function getTickTweenDuration(interval)
+	return interval * TICK_TWEEN_FRACTION
+end
+
+------------------------------------------------------------------------
 -- Per-tick display refresh
 ------------------------------------------------------------------------
 local function refreshDisplay(effectName, imgLabel, nameL, oddsL, rarityL)
@@ -299,17 +311,42 @@ end
 
 ------------------------------------------------------------------------
 -- Tick bounce: snap the ImageSurface part slightly large, tween back.
--- Skips if the previous bounce is still running so fast ticks don't jitter.
+-- Duration scales with time until the next tick (fast early, slow late).
 ------------------------------------------------------------------------
 local function makeBouncer(part, origSize)
 	local activeTween = nil
 
-	return function()
-		if activeTween and activeTween.PlaybackState == Enum.PlaybackState.Playing then
-			return
+	return function(duration)
+		if activeTween then
+			activeTween:Cancel()
 		end
-		part.Size  = origSize * BOUNCE_SCALE
-		activeTween = TweenService:Create(part, TI_BOUNCE, { Size = origSize })
+		part.Size = origSize * BOUNCE_SCALE
+		activeTween = TweenService:Create(
+			part,
+			TweenInfo.new(duration, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out),
+			{ Size = origSize }
+		)
+		activeTween:Play()
+	end
+end
+
+------------------------------------------------------------------------
+-- Billboard pop: start slightly lower, tween up to rest height each tick.
+------------------------------------------------------------------------
+local function makeBillboardPopper(bill, origStudsOffset)
+	local activeTween = nil
+	local dropOffset  = Vector3.new(0, BILLBOARD_DROP, 0)
+
+	return function(duration)
+		if activeTween then
+			activeTween:Cancel()
+		end
+		bill.StudsOffset = origStudsOffset - dropOffset
+		activeTween = TweenService:Create(
+			bill,
+			TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ StudsOffset = origStudsOffset }
+		)
 		activeTween:Play()
 	end
 end
@@ -454,7 +491,9 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		local origSunburstSize         = sunburst.Size
 		local origSunImageTransparency = sunLabel.ImageTransparency
 		local bounce                   = makeBouncer(imageSurface, origSurfaceSize)
-		local _, nameL, oddsL, rarityL = buildBillboardGui(imageSurface, scene)
+		local bill, nameL, oddsL, rarityL = buildBillboardGui(imageSurface, scene)
+		local origStudsOffset          = bill.StudsOffset
+		local billboardPop             = makeBillboardPopper(bill, origStudsOffset)
 
 		anchor.CFrame               = cframeAtPositionWithPitch(anchor.Position, CAMERA_START_PITCH)
 		sunburst.Size               = Vector3.new(0,0,0)
@@ -505,9 +544,15 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		--    p² keeps ticks near-60 hz for the first ~70% of the roll and
 		--    only decelerates visibly in the final stretch.
 		--------------------------------------------------------------------
-		refreshDisplay(RollChooser.PickRandom(pool), imgLabel, nameL, oddsL, rarityL)
-		bounce()
-		tickSound:Play()
+		local function playRollTick(progress)
+			local tweenDuration = getTickTweenDuration(getTickInterval(progress))
+			refreshDisplay(RollChooser.PickRandom(pool), imgLabel, nameL, oddsL, rarityL)
+			bounce(tweenDuration)
+			billboardPop(tweenDuration)
+			tickSound:Play()
+		end
+
+		playRollTick(0)
 
 		TweenService:Create(camera, TI_FOV_ROLL, { FieldOfView = FOV_ROLL }):Play()
 
@@ -528,7 +573,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 			local now      = os.clock()
 			local progress = math.min((now - startTime) / ROLL_DURATION, 1)
-			local interval = TICK_FAST * ((TICK_SLOW / TICK_FAST) ^ (progress ^ 2))
+			local interval = getTickInterval(progress)
 
 			if progress >= 1 then
 				landed = true
@@ -540,9 +585,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 			if now - lastTick >= interval then
 				lastTick = now
-				refreshDisplay(RollChooser.PickRandom(pool), imgLabel, nameL, oddsL, rarityL)
-				bounce()
-				tickSound:Play()
+				playRollTick(progress)
 			end
 		end)
 
