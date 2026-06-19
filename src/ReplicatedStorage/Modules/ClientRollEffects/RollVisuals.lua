@@ -30,8 +30,6 @@ local EFFECT_LOOP_INTERVAL = 2.5  -- seconds between effect replays
 local SUNBURST_SPEED     = 25     -- degrees per second
 local BOUNCE_SCALE       = 1.05   -- how much the surface punches on each tick
 local CAMERA_START_PITCH   = -9
-local CAMERA_LAND_PITCH    = 9
-local CAMERA_LAND_PULLBACK = 2    -- studs pulled back on landing tilt
 local CURSOR_FOLLOW_MAX    = 2.5  -- max camera rotation in degrees
 local CURSOR_FOLLOW_SMOOTH = 10   -- lerp speed toward cursor target
 
@@ -54,7 +52,6 @@ local TI_FOV_SETTLE    = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.Eas
 local TI_CAM_IN        = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
 local TI_SUNBURST_IN   = TweenInfo.new(1.0,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
 local TI_SUNBURST_FADE = TweenInfo.new(0.15, Enum.EasingStyle.Linear)
-local TI_CAMERA_LAND   = TweenInfo.new(0.9,  Enum.EasingStyle.Elastic,  Enum.EasingDirection.Out)
 local TI_BOUNCE        = TweenInfo.new(0.12, Enum.EasingStyle.Quad,     Enum.EasingDirection.Out)
 local TI_DISPLAY_FADE  = TweenInfo.new(0.25, Enum.EasingStyle.Linear)
 
@@ -114,14 +111,15 @@ end
 ------------------------------------------------------------------------
 -- BillboardGui above the ImageSurface part — cycles info during the roll
 ------------------------------------------------------------------------
-local function buildBillboardGui(part)
+local function buildBillboardGui(adorneePart, sceneParent)
 	local bill              = Instance.new("BillboardGui")
 	bill.Name               = "RollInfo"
-	bill.Size               = UDim2.fromOffset(500, 175)
-	bill.StudsOffset        = Vector3.new(0, part.Size.Y * 0.5 + 2.5, 0)
+	bill.Adornee            = adorneePart
+	bill.Size               = UDim2.new(6, 0, 2.1, 0)
+	bill.StudsOffset        = Vector3.new(0, adorneePart.Size.Y * 0.5 + 2.5, 0)
 	bill.AlwaysOnTop        = false
 	bill.LightInfluence     = 0
-	bill.Parent             = part
+	bill.Parent             = sceneParent
 
 	local function make(name, y, h)
 		local lbl                    = Instance.new("TextLabel")
@@ -135,6 +133,12 @@ local function buildBillboardGui(part)
 		lbl.Text                     = ""
 		lbl.Parent                   = bill
 		addTextStroke(lbl)
+
+		local textConstraint         = Instance.new("UITextSizeConstraint")
+		textConstraint.MaxTextSize   = 48
+		textConstraint.MinTextSize   = 12
+		textConstraint.Parent        = lbl
+
 		return lbl
 	end
 
@@ -259,29 +263,40 @@ local function refreshDisplay(effectName, imgLabel, nameL, oddsL, rarityL)
 end
 
 ------------------------------------------------------------------------
--- Effect replay loop — play, wait, crossfade, repeat until stopped
+-- Landed effect — particles and screen shake together
 ------------------------------------------------------------------------
-local function runEffectReplayLoop(effectName, particleBlock, fadeFrame, shouldContinue)
+local function playLandedEffect(effectName, particleBlock, rarityData)
+	if ParticlePlayer and ParticlePlayer.Play then
+		ParticlePlayer.Play(effectName, particleBlock.Position)
+	end
+
+	if rarityData and rarityData.CameraShakeConst then
+		SignalServiceClient.fireOnSignal("ScreenShake", "BindableEvent", {{
+			magnitude = rarityData.CameraShakeConst,
+			duration = 0.6,
+			radius = 150,
+		}})
+	end
+end
+
+------------------------------------------------------------------------
+-- Effect replay loop — play, wait, repeat until stopped
+------------------------------------------------------------------------
+local function runEffectReplayLoop(effectName, particleBlock, rarityData, shouldContinue, beforeEachPlay, afterEachPlay)
 	task.spawn(function()
 		while shouldContinue() do
-			if ParticlePlayer and ParticlePlayer.Play then
-				ParticlePlayer.Play(effectName, particleBlock.Position)
+			if beforeEachPlay then
+				beforeEachPlay()
+			end
+			playLandedEffect(effectName, particleBlock, rarityData)
+			if afterEachPlay then
+				afterEachPlay()
 			end
 
 			local elapsed = 0
 			while elapsed < EFFECT_LOOP_INTERVAL and shouldContinue() do
 				elapsed += task.wait()
 			end
-
-			if not shouldContinue() then
-				break
-			end
-
-			awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 0 }))
-			if not shouldContinue() then
-				break
-			end
-			awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
 		end
 	end)
 end
@@ -305,11 +320,6 @@ end
 
 local function cframeAtPositionWithPitch(position, pitchDegrees)
 	return CFrame.new(position) * CFrame.Angles(math.rad(pitchDegrees), 0, 0)
-end
-
-local function cameraCFrameWithPitchAndPullback(cameraCF, pitchDegrees, pullbackStuds)
-	local pitched = cameraCF * CFrame.Angles(math.rad(pitchDegrees), 0, 0)
-	return pitched * CFrame.new(0, 0, pullbackStuds)
 end
 
 local function getMouseNormalized()
@@ -340,8 +350,13 @@ end
 
 local function makeCursorFollower(getBaseCF)
 	local angles = Vector2.zero
+	local paused = false
 
-	return RunService.RenderStepped:Connect(function(dt)
+	local conn = RunService.RenderStepped:Connect(function(dt)
+		if paused then
+			return
+		end
+
 		local baseCF
 		local ok, result = pcall(getBaseCF)
 		if ok then
@@ -355,6 +370,20 @@ local function makeCursorFollower(getBaseCF)
 		cf, angles = applyCursorFollow(baseCF, angles, dt)
 		camera.CFrame = cf
 	end)
+
+	local controller = {
+		Reset = function(baseCF)
+			angles = Vector2.zero
+			if baseCF then
+				camera.CFrame = baseCF
+			end
+		end,
+		SetPaused = function(value)
+			paused = value
+		end,
+	}
+
+	return conn, controller
 end
 
 local function makeSound(id, volume)
@@ -429,7 +458,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		local origSunburstSize         = sunburst.Size
 		local origSunImageTransparency = sunLabel.ImageTransparency
 		local bounce                   = makeBouncer(imageSurface, origSurfaceSize)
-		local _, nameL, oddsL, rarityL = buildBillboardGui(imageSurface)
+		local _, nameL, oddsL, rarityL = buildBillboardGui(imageSurface, scene)
 
 		anchor.CFrame               = cframeAtPositionWithPitch(anchor.Position, CAMERA_START_PITCH)
 		sunburst.Size               = Vector3.new(0,0,0)
@@ -445,7 +474,6 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		camera.FieldOfView = FOV_DEFAULT
 
 		local targetCF = CFrame.lookAt(anchor.Position, imageSurface.Position)
-		local landCF   = cameraCFrameWithPitchAndPullback(targetCF, CAMERA_LAND_PITCH, CAMERA_LAND_PULLBACK)
 		local downCF   = CFrame.lookAt(
 			anchor.Position,
 			anchor.Position + Vector3.new(0.001, -1, 0.001)
@@ -456,7 +484,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		camBase.Value       = downCF
 		camBase.Parent      = scene
 
-		local cursorConn = makeCursorFollower(function()
+		local cursorConn, cursorCtrl = makeCursorFollower(function()
 			return camBase.Value
 		end)
 		camera.CFrame       = downCF
@@ -530,7 +558,9 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		--    FOV: 55 → 85 fast (punch), then 85 → 70 elastic (settle)
 		--    Sunburst pops in and spins; surface + billboard fade out
 		--------------------------------------------------------------------
-		TweenService:Create(camBase, TI_CAMERA_LAND, { Value = landCF }):Play()
+		cursorConn:Disconnect()
+		camBase.Value = targetCF
+		cursorCtrl.Reset(targetCF)
 
 		task.spawn(function()
 			awaitTween(TweenService:Create(camera, TI_FOV_PUNCH,  { FieldOfView = FOV_LAND    }))
@@ -543,14 +573,6 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 			openSound:Play()
 		end
 
-		if chosenRarityData and chosenRarityData.CameraShakeConst then
-			SignalServiceClient.fireOnSignal("ScreenShake", "BindableEvent", {{
-				magnitude = chosenRarityData.CameraShakeConst,
-				duration = 0.6,
-				radius = 150,
-			}})
-		end
-
 		TweenService:Create(sunburst, TI_SUNBURST_IN, { Size = origSunburstSize }):Play()
 		TweenService:Create(sunLabel, TI_SUNBURST_FADE, { ImageTransparency = origSunImageTransparency }):Play()
 
@@ -561,9 +583,9 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		-- Result popup
 		local resultGui = buildResultGui(chosenEffect)
 
-		-- Replay the landed effect with roll-style crossfades until teardown
+		-- Replay the landed effect until teardown
 		local replayActive = true
-		runEffectReplayLoop(chosenEffect, particleBlock, fadeFrame, function()
+		runEffectReplayLoop(chosenEffect, particleBlock, chosenRarityData, function()
 			return replayActive
 		end)
 
@@ -577,7 +599,6 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		-- 10. Tear down
 		--------------------------------------------------------------------
 		sunConn:Disconnect()
-		cursorConn:Disconnect()
 		startSound:Destroy()
 		tickSound:Destroy()
 		preLandSound:Destroy()
@@ -641,7 +662,7 @@ function RollVisuals.Inspect(effectName, onClose)
 
 		local origSunburstSize         = sunburst.Size
 		local origSunImageTransparency = sunLabel.ImageTransparency
-		local _, nameL, oddsL, rarityL = buildBillboardGui(imageSurface)
+		local _, nameL, oddsL, rarityL = buildBillboardGui(imageSurface, scene)
 
 		anchor.CFrame              = cframeAtPositionWithPitch(anchor.Position, CAMERA_START_PITCH)
 		sunburst.Size              = origSunburstSize
@@ -657,17 +678,16 @@ function RollVisuals.Inspect(effectName, onClose)
 		camera.FieldOfView = FOV_DEFAULT
 
 		local targetCF = CFrame.lookAt(anchor.Position, imageSurface.Position)
-		local landCF   = cameraCFrameWithPitchAndPullback(targetCF, CAMERA_LAND_PITCH, CAMERA_LAND_PULLBACK)
 
 		local camBase  = Instance.new("CFrameValue")
 		camBase.Name   = "InspectCameraBase"
-		camBase.Value  = landCF
+		camBase.Value  = targetCF
 		camBase.Parent = scene
 
-		local cursorConn = makeCursorFollower(function()
+		local cursorConn, cursorCtrl = makeCursorFollower(function()
 			return camBase.Value
 		end)
-		camera.CFrame = landCF
+		camera.CFrame = targetCF
 
 		local sunConn = startSunburstSpin(sunLabel)
 
@@ -676,6 +696,24 @@ function RollVisuals.Inspect(effectName, onClose)
 		local replayActive = true
 		local inspectGui
 		local closed = false
+		local shakeResumeToken = 0
+
+		local function prepareCameraForShake()
+			shakeResumeToken += 1
+			cursorCtrl.SetPaused(true)
+			camBase.Value = targetCF
+			cursorCtrl.Reset(targetCF)
+		end
+
+		local function scheduleCursorResume()
+			local token = shakeResumeToken
+			task.delay(0.6, function()
+				if token ~= shakeResumeToken or closed or not replayActive then
+					return
+				end
+				cursorCtrl.SetPaused(false)
+			end)
+		end
 
 		local function closeInspect()
 			if closed then
@@ -683,6 +721,8 @@ function RollVisuals.Inspect(effectName, onClose)
 			end
 			closed = true
 			replayActive = false
+			shakeResumeToken += 1
+			cursorCtrl.SetPaused(true)
 
 			awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 0 }))
 
@@ -707,8 +747,12 @@ function RollVisuals.Inspect(effectName, onClose)
 
 		inspectGui = buildInspectGui(closeInspect)
 
-		runEffectReplayLoop(effectName, particleBlock, fadeFrame, function()
+		runEffectReplayLoop(effectName, particleBlock, rarityData, function()
 			return replayActive
+		end, function()
+			prepareCameraForShake()
+		end, function()
+			scheduleCursorResume()
 		end)
 	end)
 end
