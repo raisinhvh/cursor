@@ -9,12 +9,7 @@ local ClientRollEffects = script.Parent
 local RarityData = require(ClientRollEffects:WaitForChild("RarityData"))
 local EffectData = require(ClientRollEffects:WaitForChild("EffectData"))
 
-local ParticlePlayer
-pcall(function()
-	ParticlePlayer = require(
-		script.Parent.Parent:WaitForChild("ParticlePlayer", 2)
-	)
-end)
+local ParticlePlayer = require(ReplicatedStorage.Modules:WaitForChild("ParticlePlayer", 2))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -39,7 +34,7 @@ local CURSOR_FOLLOW_MAX    = 2.5  -- max camera rotation in degrees
 local CURSOR_FOLLOW_SMOOTH = 10   -- lerp speed toward cursor target
 
 -- Sounds — replace placeholder IDs with your real asset IDs
-local SOUND_OPEN_START = "rbxassetid://0"                -- plays once when the roll sequence begins
+local SOUND_OPEN_START = "rbxassetid://101203249378987"                -- plays once when the roll sequence begins
 local SOUND_TICK       = "rbxassetid://135006148699863"  -- plays on every effect switch
 local SOUND_PRE_LAND   = "rbxassetid://89841937506750"   -- plays 2s before the roll finishes
 
@@ -280,8 +275,8 @@ local function getMouseNormalized()
 	end
 
 	return Vector2.new(
-		math.clamp((mouse.X / viewport.X - 0.5) * 2, -1, 1),
-		math.clamp((mouse.Y / viewport.Y - 0.5) * 2, -1, 1)
+		math.clamp((mouse.X / viewport.X - 0.5), -1, 1),
+		math.clamp((mouse.Y / viewport.Y - 0.5), -1, 1)
 	)
 end
 
@@ -406,13 +401,9 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 		--------------------------------------------------------------------
 		-- 4. Camera intro (elastic down → up), then undarken
+		-- 5. Sounds too
 		--------------------------------------------------------------------
-		TweenService:Create(camBase, TI_CAM_IN, { Value = targetCF }):Play()
-		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
-
-		--------------------------------------------------------------------
-		-- 5. Sounds
-		--------------------------------------------------------------------
+		
 		local function makeSound(id, volume)
 			local s      = Instance.new("Sound")
 			s.SoundId    = id
@@ -420,12 +411,15 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 			s.Parent     = workspace
 			return s
 		end
-
+		
+		TweenService:Create(camBase, TI_CAM_IN, { Value = targetCF }):Play()
 		local startSound   = makeSound(SOUND_OPEN_START)
+		startSound:Play()
+		
+		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
+		
 		local tickSound    = makeSound(SOUND_TICK)
 		local preLandSound = makeSound(SOUND_PRE_LAND, 0.7)
-
-		startSound:Play()
 
 		--------------------------------------------------------------------
 		-- 6. Rolling heartbeat
