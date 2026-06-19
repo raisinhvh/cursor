@@ -23,12 +23,12 @@ local TICK_FAST          = 0.085  -- "super fast" at the start
 local TICK_SLOW          = 0.34   -- slowest tick rate (stays smooth)
 local FADE_DURATION      = 0.15   -- screen crossfade
 local FOV_DEFAULT        = 70
-local FOV_ROLL           = 55     -- FOV during the roll
+local FOV_ROLL           = 49     -- FOV during the roll
 local FOV_LAND           = 85     -- FOV punch target on land
 local POST_LAND_PAUSE    = 4      -- seconds the result is held on screen
 local EFFECT_LOOP_INTERVAL = 2.5  -- seconds between effect replays
-local SUNBURST_SPEED     = 25     -- degrees per second
-local BOUNCE_SCALE       = 1.05   -- how much the surface punches on each tick
+local SUNBURST_SPEED     = 55     -- degrees per second
+local BOUNCE_SCALE       = 1.2   -- how much the surface punches on each tick
 local BILLBOARD_DROP     = 0.35   -- studs the billboard starts below its rest position
 local TICK_TWEEN_FRACTION = 0.85  -- tween length as a fraction of time until the next tick
 local CAMERA_START_PITCH   = -9
@@ -261,7 +261,7 @@ local function refreshDisplay(effectName, imgLabel, nameL, oddsL, rarityL)
 	if effect and effect.Image then
 		imgLabel.Image = effect.Image
 	end
-	imgLabel.ImageColor3          = Color3.new(0, 0, 0)
+	imgLabel.ImageColor3          = Color3.new(0.2, 0.2, 0.2)
 	imgLabel.BackgroundTransparency = 1
 
 	nameL.Text   = (effect and effect.DisplayName) or effectName
@@ -323,7 +323,7 @@ local function makeBouncer(part, origSize)
 		part.Size = origSize * BOUNCE_SCALE
 		activeTween = TweenService:Create(
 			part,
-			TweenInfo.new(duration, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out),
+			TweenInfo.new(duration, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out),
 			{ Size = origSize }
 		)
 		activeTween:Play()
