@@ -3,12 +3,12 @@ local RunService        = game:GetService("RunService")
 local Players           = game:GetService("Players")
 local UserInputService  = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SignalServiceClient = require(ReplicatedStorage.Modules.SignalServiceClient)
 
 local ClientRollEffects = script.Parent
 local RarityData = require(ClientRollEffects:WaitForChild("RarityData"))
 local EffectData = require(ClientRollEffects:WaitForChild("EffectData"))
 local RollChooser = require(ClientRollEffects:WaitForChild("RollChooser"))
+local VfxCameraShake = require(ClientRollEffects:WaitForChild("VfxCameraShake"))
 
 local ParticlePlayer = require(ReplicatedStorage.Modules:WaitForChild("ParticlePlayer", 2))
 
@@ -271,11 +271,7 @@ local function playLandedEffect(effectName, particleBlock, rarityData)
 	end
 
 	if rarityData and rarityData.CameraShakeConst then
-		SignalServiceClient.fireOnSignal("ScreenShake", "BindableEvent", {{
-			magnitude = rarityData.CameraShakeConst,
-			duration = 0.6,
-			radius = 150,
-		}})
+		VfxCameraShake.Play(rarityData.CameraShakeConst)
 	end
 end
 
@@ -707,7 +703,7 @@ function RollVisuals.Inspect(effectName, onClose)
 
 		local function scheduleCursorResume()
 			local token = shakeResumeToken
-			task.delay(0.6, function()
+			task.delay(VfxCameraShake.GetDuration(), function()
 				if token ~= shakeResumeToken or closed or not replayActive then
 					return
 				end
