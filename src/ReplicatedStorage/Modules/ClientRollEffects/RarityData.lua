@@ -9,47 +9,39 @@ return {
 		Tier        = 1,
 		DisplayName = "Common",
 		Color       = Color3.fromRGB(176, 176, 176),
+		OpenSound   = "rbxassetid://9085320874",
+		CameraShakeConst = 8,
 	},
 
 	Uncommon = {
 		Tier        = 2,
 		DisplayName = "Uncommon",
 		Color       = Color3.fromRGB(94, 196, 94),
+		OpenSound   = "rbxassetid://9085320874",
+		CameraShakeConst = 70,
 	},
 
 	Rare = {
 		Tier        = 3,
 		DisplayName = "Rare",
 		Color       = Color3.fromRGB(73, 143, 225),
+		OpenSound   = "rbxassetid://9085320874",
+		CameraShakeConst = 25,
 	},
 
 	Epic = {
 		Tier        = 4,
 		DisplayName = "Epic",
 		Color       = Color3.fromRGB(163, 73, 225),
+		OpenSound   = "rbxassetid://9085320874",
+		CameraShakeConst = 30,
 	},
 
 	Legendary = {
 		Tier        = 5,
 		DisplayName = "Legendary",
 		Color       = Color3.fromRGB(255, 170, 0),
-	},
-
-	Mythical = {
-		Tier        = 6,
-		DisplayName = "Mythical",
-		Color       = Color3.fromRGB(220, 50, 50),
-	},
-
-	Divine = {
-		Tier        = 7,
-		DisplayName = "Divine",
-		Color       = Color3.fromRGB(120, 220, 255),
-	},
-
-	Prismatic = {
-		Tier        = 8,
-		DisplayName = "Prismatic",
-		Color       = Color3.fromRGB(255, 100, 220),
+		OpenSound   = "rbxassetid://9085320874",
+		CameraShakeConst = 35,
 	},
 }
