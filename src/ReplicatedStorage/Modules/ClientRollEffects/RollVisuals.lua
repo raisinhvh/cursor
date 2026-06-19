@@ -3,6 +3,7 @@ local RunService        = game:GetService("RunService")
 local Players           = game:GetService("Players")
 local UserInputService  = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
 
 local ClientRollEffects = script.Parent
 local RarityData = require(ClientRollEffects:WaitForChild("RarityData"))
@@ -11,6 +12,7 @@ local RollChooser = require(ClientRollEffects:WaitForChild("RollChooser"))
 local VfxCameraShake = require(ClientRollEffects:WaitForChild("VfxCameraShake"))
 
 local ParticlePlayer = require(ReplicatedStorage.Modules:WaitForChild("ParticlePlayer", 2))
+local SignalServiceClient = require(ReplicatedStorage.Modules:WaitForChild("SignalServiceClient"))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -39,6 +41,8 @@ local CURSOR_FOLLOW_SMOOTH = 10   -- lerp speed toward cursor target
 local SOUND_OPEN_START = "rbxassetid://101203249378987"                -- plays once when the roll sequence begins
 local SOUND_TICK       = "rbxassetid://135006148699863"  -- plays on every effect switch
 local SOUND_PRE_LAND   = "rbxassetid://89841937506750"   -- plays 2s before the roll finishes
+local CLOSE_IMAGE      = "rbxassetid://112773210981451"
+local CLOSE_SIZE       = 44
 
 -- Shared font face
 local RUBIK_EB = Font.new(
@@ -207,8 +211,16 @@ local function buildResultGui(effectName)
 end
 
 ------------------------------------------------------------------------
--- Inspect overlay — placeholder close button in the bottom right
+-- Inspect overlay — close button in the bottom right
 ------------------------------------------------------------------------
+local function tagReactive(instance)
+	local reactiveComponent = instance:FindFirstChild("Reactive")
+	if reactiveComponent then
+		reactiveComponent:Destroy()
+	end
+	CollectionService:AddTag(instance, "Reactive")
+end
+
 local function buildInspectGui(onClose)
 	local gui           = Instance.new("ScreenGui")
 	gui.Name            = "InspectVisuals"
@@ -217,24 +229,22 @@ local function buildInspectGui(onClose)
 	gui.DisplayOrder    = 100
 	gui.Parent          = player.PlayerGui
 
-	local closeBtn                    = Instance.new("TextButton")
+	local closeBtn                    = Instance.new("ImageButton")
 	closeBtn.Name                     = "Close"
 	closeBtn.AnchorPoint              = Vector2.new(1, 1)
 	closeBtn.Position                 = UDim2.new(1, -16, 1, -16)
-	closeBtn.Size                     = UDim2.fromOffset(120, 44)
-	closeBtn.BackgroundColor3         = Color3.fromRGB(40, 40, 40)
-	closeBtn.BackgroundTransparency   = 0.2
+	closeBtn.Size                     = UDim2.fromOffset(CLOSE_SIZE, CLOSE_SIZE)
+	closeBtn.BackgroundTransparency   = 1
 	closeBtn.BorderSizePixel          = 0
-	closeBtn.Text                     = "Close"
-	closeBtn.TextColor3               = Color3.new(1, 1, 1)
-	closeBtn.TextScaled               = true
-	closeBtn.FontFace                 = RUBIK_EB
+	closeBtn.Image                    = CLOSE_IMAGE
+	closeBtn.ScaleType                = Enum.ScaleType.Fit
 	closeBtn.Parent                   = gui
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = closeBtn
+	local aspectRatio = Instance.new("UIAspectRatioConstraint")
+	aspectRatio.AspectRatio = 1
+	aspectRatio.Parent = closeBtn
 
+	tagReactive(closeBtn)
 	closeBtn.MouseButton1Click:Connect(onClose)
 
 	return gui
@@ -454,6 +464,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 	end
 
 	isRolling = true
+	SignalServiceClient.fireOnSignal("CloseMenu", "BindableEvent", {})
 
 	task.spawn(function()
 		local pool = RollChooser.BuildPool(effectsList)
@@ -678,6 +689,7 @@ function RollVisuals.Inspect(effectName, onClose)
 	end
 
 	isInspecting = true
+	SignalServiceClient.fireOnSignal("CloseMenu", "BindableEvent", {})
 
 	task.spawn(function()
 		local effectData = EffectData[effectName]
