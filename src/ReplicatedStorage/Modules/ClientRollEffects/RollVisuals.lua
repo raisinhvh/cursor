@@ -544,7 +544,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		end
 
 		if chosenRarityData and chosenRarityData.CameraShakeConst then
-			SignalServiceClient.fireOnSignal("ScreenShake", "RemoteEvent", {{
+			SignalServiceClient.fireOnSignal("ScreenShake", "BindableEvent", {{
 				magnitude = chosenRarityData.CameraShakeConst,
 				duration = 0.6,
 				radius = 150,
