@@ -1,7 +1,7 @@
 -- ModuleScript: ReplicatedStorage.Modules.ClientRollEffects.EffectData
 --
 -- Single source of truth for every rollable effect.
--- All fields are read by RollVisuals — no need to pass Odds or Rarity separately.
+-- All fields are read by RollVisuals and RollChooser — no need to pass Odds or Rarity separately.
 --
 -- Image   : rbxassetid of the 2D preview shown (as a black silhouette) during rolls.
 -- Odds    : 0–1 probability weight.  0.1 = "1/10".  Used for weighted pool building.

@@ -8,6 +8,7 @@ local SignalServiceClient = require(ReplicatedStorage.Modules.SignalServiceClien
 local ClientRollEffects = script.Parent
 local RarityData = require(ClientRollEffects:WaitForChild("RarityData"))
 local EffectData = require(ClientRollEffects:WaitForChild("EffectData"))
+local RollChooser = require(ClientRollEffects:WaitForChild("RollChooser"))
 
 local ParticlePlayer = require(ReplicatedStorage.Modules:WaitForChild("ParticlePlayer", 2))
 
@@ -25,6 +26,7 @@ local FOV_DEFAULT        = 70
 local FOV_ROLL           = 55     -- FOV during the roll
 local FOV_LAND           = 85     -- FOV punch target on land
 local POST_LAND_PAUSE    = 4      -- seconds the result is held on screen
+local EFFECT_LOOP_INTERVAL = 2.5  -- seconds between effect replays
 local SUNBURST_SPEED     = 25     -- degrees per second
 local BOUNCE_SCALE       = 1.05   -- how much the surface punches on each tick
 local CAMERA_START_PITCH   = -9
@@ -57,25 +59,6 @@ local TI_BOUNCE        = TweenInfo.new(0.12, Enum.EasingStyle.Quad,     Enum.Eas
 local TI_DISPLAY_FADE  = TweenInfo.new(0.25, Enum.EasingStyle.Linear)
 
 ------------------------------------------------------------------------
--- Weighted random pool
-------------------------------------------------------------------------
-local function buildPool(effectsList)
-	local pool = {}
-	for _, name in ipairs(effectsList) do
-		local data  = EffectData[name]
-		local slots = data and math.max(1, math.round((data.Odds or 0) * 1000)) or 1
-		for _ = 1, slots do
-			pool[#pool + 1] = name
-		end
-	end
-	return pool
-end
-
-local function pickRandom(pool)
-	return pool[math.random(1, #pool)]
-end
-
-------------------------------------------------------------------------
 -- Odds → "1/X" string
 ------------------------------------------------------------------------
 local function toFraction(odds)
@@ -86,12 +69,12 @@ end
 ------------------------------------------------------------------------
 -- Fade overlay
 ------------------------------------------------------------------------
-local function makeFadeOverlay()
+local function makeFadeOverlay(displayOrder)
 	local gui           = Instance.new("ScreenGui")
 	gui.Name            = "RollFade"
 	gui.IgnoreGuiInset  = true
 	gui.ResetOnSpawn    = false
-	gui.DisplayOrder    = 999
+	gui.DisplayOrder    = displayOrder or 999
 
 	local frame                    = Instance.new("Frame")
 	frame.Size                     = UDim2.fromScale(1, 1)
@@ -219,6 +202,40 @@ local function buildResultGui(effectName)
 end
 
 ------------------------------------------------------------------------
+-- Inspect overlay — placeholder close button in the bottom right
+------------------------------------------------------------------------
+local function buildInspectGui(onClose)
+	local gui           = Instance.new("ScreenGui")
+	gui.Name            = "InspectVisuals"
+	gui.IgnoreGuiInset  = true
+	gui.ResetOnSpawn    = false
+	gui.DisplayOrder    = 100
+	gui.Parent          = player.PlayerGui
+
+	local closeBtn                    = Instance.new("TextButton")
+	closeBtn.Name                     = "Close"
+	closeBtn.AnchorPoint              = Vector2.new(1, 1)
+	closeBtn.Position                 = UDim2.new(1, -16, 1, -16)
+	closeBtn.Size                     = UDim2.fromOffset(120, 44)
+	closeBtn.BackgroundColor3         = Color3.fromRGB(40, 40, 40)
+	closeBtn.BackgroundTransparency   = 0.2
+	closeBtn.BorderSizePixel          = 0
+	closeBtn.Text                     = "Close"
+	closeBtn.TextColor3               = Color3.new(1, 1, 1)
+	closeBtn.TextScaled               = true
+	closeBtn.FontFace                 = RUBIK_EB
+	closeBtn.Parent                   = gui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = closeBtn
+
+	closeBtn.MouseButton1Click:Connect(onClose)
+
+	return gui
+end
+
+------------------------------------------------------------------------
 -- Per-tick display refresh
 ------------------------------------------------------------------------
 local function refreshDisplay(effectName, imgLabel, nameL, oddsL, rarityL)
@@ -239,6 +256,34 @@ local function refreshDisplay(effectName, imgLabel, nameL, oddsL, rarityL)
 	oddsL.TextColor3   = col
 	rarityL.TextColor3 = col
 	nameL.TextColor3   = Color3.new(1, 1, 1)
+end
+
+------------------------------------------------------------------------
+-- Effect replay loop — play, wait, crossfade, repeat until stopped
+------------------------------------------------------------------------
+local function runEffectReplayLoop(effectName, particleBlock, fadeFrame, shouldContinue)
+	task.spawn(function()
+		while shouldContinue() do
+			if ParticlePlayer and ParticlePlayer.Play then
+				ParticlePlayer.Play(effectName, particleBlock.Position)
+			end
+
+			local elapsed = 0
+			while elapsed < EFFECT_LOOP_INTERVAL and shouldContinue() do
+				elapsed += task.wait()
+			end
+
+			if not shouldContinue() then
+				break
+			end
+
+			awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 0 }))
+			if not shouldContinue() then
+				break
+			end
+			awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
+		end
+	end)
 end
 
 ------------------------------------------------------------------------
@@ -312,15 +357,32 @@ local function makeCursorFollower(getBaseCF)
 	end)
 end
 
+local function makeSound(id, volume)
+	local s      = Instance.new("Sound")
+	s.SoundId    = id
+	s.Volume     = volume or 1
+	s.Parent     = workspace
+	return s
+end
+
+local function startSunburstSpin(sunLabel)
+	local sunAngle = 0
+	return RunService.Heartbeat:Connect(function(dt)
+		sunAngle          = sunAngle + dt * SUNBURST_SPEED
+		sunLabel.Rotation = sunAngle
+	end)
+end
+
 ------------------------------------------------------------------------
 -- Public API
 ------------------------------------------------------------------------
 local RollVisuals = {}
 local isRolling   = false
+local isInspecting = false
 
 function RollVisuals.Play(chosenEffect, effectsList, onComplete)
-	if isRolling then
-		warn("[RollVisuals] A roll is already in progress; call ignored.")
+	if isRolling or isInspecting then
+		warn("[RollVisuals] A roll or inspect is already in progress; call ignored.")
 		return
 	end
 	if not EffectData[chosenEffect] then
@@ -332,7 +394,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 	isRolling = true
 
 	task.spawn(function()
-		local pool = buildPool(effectsList)
+		local pool = RollChooser.BuildPool(effectsList)
 		local chosenEffectData = EffectData[chosenEffect]
 		local chosenRarityData = chosenEffectData and RarityData[chosenEffectData.Rarity]
 
@@ -403,21 +465,12 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		-- 4. Camera intro (elastic down → up), then undarken
 		-- 5. Sounds too
 		--------------------------------------------------------------------
-		
-		local function makeSound(id, volume)
-			local s      = Instance.new("Sound")
-			s.SoundId    = id
-			s.Volume     = volume or 1
-			s.Parent     = workspace
-			return s
-		end
-		
 		TweenService:Create(camBase, TI_CAM_IN, { Value = targetCF }):Play()
 		local startSound   = makeSound(SOUND_OPEN_START)
 		startSound:Play()
-		
+
 		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
-		
+
 		local tickSound    = makeSound(SOUND_TICK)
 		local preLandSound = makeSound(SOUND_PRE_LAND, 0.7)
 
@@ -428,7 +481,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		--    p² keeps ticks near-60 hz for the first ~70% of the roll and
 		--    only decelerates visibly in the final stretch.
 		--------------------------------------------------------------------
-		refreshDisplay(pickRandom(pool), imgLabel, nameL, oddsL, rarityL)
+		refreshDisplay(RollChooser.PickRandom(pool), imgLabel, nameL, oddsL, rarityL)
 		bounce()
 		tickSound:Play()
 
@@ -463,7 +516,7 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 
 			if now - lastTick >= interval then
 				lastTick = now
-				refreshDisplay(pickRandom(pool), imgLabel, nameL, oddsL, rarityL)
+				refreshDisplay(RollChooser.PickRandom(pool), imgLabel, nameL, oddsL, rarityL)
 				bounce()
 				tickSound:Play()
 			end
@@ -501,27 +554,24 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		TweenService:Create(sunburst, TI_SUNBURST_IN, { Size = origSunburstSize }):Play()
 		TweenService:Create(sunLabel, TI_SUNBURST_FADE, { ImageTransparency = origSunImageTransparency }):Play()
 
-		local sunAngle = 0
-		local sunConn  = RunService.Heartbeat:Connect(function(dt)
-			sunAngle          = sunAngle + dt * SUNBURST_SPEED
-			sunLabel.Rotation = sunAngle
-		end)
+		local sunConn = startSunburstSpin(sunLabel)
 
 		fadeOutRollDisplay(imgLabel, { nameL, oddsL, rarityL })
 
-		-- Particle handoff — surface fades out, particles handle visuals
-		if ParticlePlayer and ParticlePlayer.Play then
-			ParticlePlayer.Play(chosenEffect, particleBlock.Position)
-		end
-		-- placeholder: wire up ReplicatedStorage.Modules.ParticlePlayer when ready
-
 		-- Result popup
 		local resultGui = buildResultGui(chosenEffect)
+
+		-- Replay the landed effect with roll-style crossfades until teardown
+		local replayActive = true
+		runEffectReplayLoop(chosenEffect, particleBlock, fadeFrame, function()
+			return replayActive
+		end)
 
 		--------------------------------------------------------------------
 		-- 9. Hold result on screen
 		--------------------------------------------------------------------
 		task.wait(POST_LAND_PAUSE)
+		replayActive = false
 
 		--------------------------------------------------------------------
 		-- 10. Tear down
@@ -550,6 +600,116 @@ function RollVisuals.Play(chosenEffect, effectsList, onComplete)
 		if onComplete then
 			task.spawn(onComplete)
 		end
+	end)
+end
+
+function RollVisuals.Inspect(effectName, onClose)
+	if isRolling or isInspecting then
+		warn("[RollVisuals] A roll or inspect is already in progress; call ignored.")
+		return
+	end
+	if not EffectData[effectName] then
+		warn("[RollVisuals] effectName not found in EffectData:", effectName)
+		return
+	end
+
+	isInspecting = true
+
+	task.spawn(function()
+		local effectData = EffectData[effectName]
+		local rarityData = effectData and RarityData[effectData.Rarity]
+
+		local fadeGui, fadeFrame = makeFadeOverlay()
+		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 0 }))
+
+		local scene         = ReplicatedStorage.ClientAssets:WaitForChild("Cutscene"):Clone()
+		scene.Parent        = workspace
+
+		local anchor        = scene:WaitForChild("Anchor")
+		local imageSurface  = scene:WaitForChild("ImageSurface")
+		local sunburst      = scene:WaitForChild("Sunburst")
+		local particleBlock = scene:WaitForChild("ParticleBlock")
+
+		local imgGui   = imageSurface:WaitForChild("ImageSurface")
+		local imgLabel = imgGui:WaitForChild("ImageSurface")
+
+		local sunLabel = sunburst
+			:WaitForChild("Sunburst")
+			:WaitForChild("Sunburst")
+
+		imgLabel.BackgroundTransparency = 1
+
+		local origSunburstSize         = sunburst.Size
+		local origSunImageTransparency = sunLabel.ImageTransparency
+		local _, nameL, oddsL, rarityL = buildBillboardGui(imageSurface)
+
+		anchor.CFrame              = cframeAtPositionWithPitch(anchor.Position, CAMERA_START_PITCH)
+		sunburst.Size              = origSunburstSize
+		sunLabel.ImageTransparency = origSunImageTransparency
+
+		refreshDisplay(effectName, imgLabel, nameL, oddsL, rarityL)
+		fadeOutRollDisplay(imgLabel, { nameL, oddsL, rarityL })
+
+		local prevCamType = camera.CameraType
+		local prevFOV     = camera.FieldOfView
+
+		camera.CameraType  = Enum.CameraType.Scriptable
+		camera.FieldOfView = FOV_DEFAULT
+
+		local targetCF = CFrame.lookAt(anchor.Position, imageSurface.Position)
+		local landCF   = cameraCFrameWithPitchAndPullback(targetCF, CAMERA_LAND_PITCH, CAMERA_LAND_PULLBACK)
+
+		local camBase  = Instance.new("CFrameValue")
+		camBase.Name   = "InspectCameraBase"
+		camBase.Value  = landCF
+		camBase.Parent = scene
+
+		local cursorConn = makeCursorFollower(function()
+			return camBase.Value
+		end)
+		camera.CFrame = landCF
+
+		local sunConn = startSunburstSpin(sunLabel)
+
+		awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
+
+		local replayActive = true
+		local inspectGui
+		local closed = false
+
+		local function closeInspect()
+			if closed then
+				return
+			end
+			closed = true
+			replayActive = false
+
+			awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 0 }))
+
+			sunConn:Disconnect()
+			cursorConn:Disconnect()
+			camera.CameraType  = prevCamType
+			camera.FieldOfView = prevFOV
+			scene:Destroy()
+			if inspectGui then
+				inspectGui:Destroy()
+			end
+
+			awaitTween(TweenService:Create(fadeFrame, TI_FADE, { BackgroundTransparency = 1 }))
+			fadeGui:Destroy()
+
+			isInspecting = false
+
+			if onClose then
+				task.spawn(onClose)
+			end
+		end
+
+		inspectGui = buildInspectGui(closeInspect)
+
+		runEffectReplayLoop(effectName, particleBlock, fadeFrame, function()
+			return replayActive
+		end)
 	end)
 end
 
