@@ -11,35 +11,35 @@ return {
 	["Inferno"] = {
 		DisplayName = "Inferno",
 		Image       = "http://www.roblox.com/asset/?id=8508980527",
-		Odds        = 0.25,
+		Odds        = 0.40,
 		Rarity      = "Common",
 	},
 
-	["Blizzard"] = {
-		DisplayName = "Blizzard",
+	["Frostbite"] = {
+		DisplayName = "Frostbite",
 		Image       = "http://www.roblox.com/asset/?id=130218740",
-		Odds        = 0.15,
+		Odds        = 0.30,
 		Rarity      = "Uncommon",
 	},
 
 	["Thunder"] = {
 		DisplayName = "Thunder",
 		Image       = "http://www.roblox.com/asset/?id=6673967738",
-		Odds        = 0.08,
+		Odds        = 0.15,
 		Rarity      = "Rare",
 	},
 
 	["Void"] = {
 		DisplayName = "Void",
 		Image       = "http://www.roblox.com/asset/?id=6344756217",
-		Odds        = 0.03,
+		Odds        = 0.1,
 		Rarity      = "Epic",
 	},
 
 	["Celestial"] = {
 		DisplayName = "Celestial",
 		Image       = "http://www.roblox.com/asset/?id=1177150746",
-		Odds        = 0.01,
+		Odds        = 0.05,
 		Rarity      = "Legendary",
 	},
 
